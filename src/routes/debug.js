@@ -13,15 +13,20 @@ router.get('/test', async (req, res) => {
       mongodb: {
         connected: mongoose.connection.readyState === 1,
         state: mongoose.connection.readyState,
+        stateDescription: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
         host: mongoose.connection.host || 'Not connected',
-        name: mongoose.connection.name || 'N/A'
+        name: mongoose.connection.name || 'N/A',
+        uriPreview: process.env.MONGODB_URI ?
+          process.env.MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@').substring(0, 100) :
+          'Not set'
       },
       collections: {},
       users: {},
       environment: {
         nodeEnv: process.env.NODE_ENV || 'not set',
         hasJwtSecret: !!process.env.JWT_SECRET,
-        hasMongoUri: !!process.env.MONGODB_URI
+        hasMongoUri: !!process.env.MONGODB_URI,
+        mongoUriLength: process.env.MONGODB_URI ? process.env.MONGODB_URI.length : 0
       }
     };
 
@@ -116,6 +121,65 @@ router.post('/test-login', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: error.message
+    });
+  }
+});
+
+// Force reconnect to MongoDB
+router.post('/reconnect', async (req, res) => {
+  try {
+    const result = {
+      before: {
+        state: mongoose.connection.readyState,
+        stateDescription: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState]
+      },
+      attempt: {},
+      after: {}
+    };
+
+    // Try to disconnect first
+    if (mongoose.connection.readyState !== 0) {
+      await mongoose.connection.close();
+      result.attempt.disconnected = true;
+    }
+
+    // Try to reconnect
+    try {
+      await mongoose.connect(process.env.MONGODB_URI, {
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+      });
+
+      result.attempt.success = true;
+      result.attempt.message = 'Reconnected successfully';
+
+      result.after = {
+        state: mongoose.connection.readyState,
+        stateDescription: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState],
+        host: mongoose.connection.host,
+        name: mongoose.connection.name
+      };
+
+    } catch (error) {
+      result.attempt.success = false;
+      result.attempt.error = error.message;
+      result.attempt.errorDetails = {
+        name: error.name,
+        code: error.code,
+        codeName: error.codeName
+      };
+    }
+
+    res.json({
+      status: result.attempt.success ? 'success' : 'error',
+      message: result.attempt.success ? 'MongoDB reconnected' : 'Failed to reconnect',
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
