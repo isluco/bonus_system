@@ -5,12 +5,30 @@ const mongoose = require('mongoose');
 
 const app = express();
 
-// Manual CORS middleware for Vercel
+// CORS Configuration - Compatible with Vercel
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'https://bonus-system.vercel.app',
+  // Agrega aquí tu dominio de producción cuando lo tengas
+];
+
+// CORS middleware optimizado para Vercel
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+
+  // Allow all origins in development, specific in production
+  if (process.env.NODE_ENV === 'development' || !origin || allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin || '*');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
 
   // Handle preflight OPTIONS request
   if (req.method === 'OPTIONS') {

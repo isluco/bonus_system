@@ -5,7 +5,10 @@
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "vercel-build": "echo 'Building for Vercel...'",
+    "deploy": "vercel --prod",
+    "deploy:dev": "vercel"
   },
   "dependencies": {
     "express": "^4.18.2",

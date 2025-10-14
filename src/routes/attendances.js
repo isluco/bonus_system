@@ -1,14 +1,23 @@
 const express = require('express');
 const router = express.Router();
 const Attendance = require('../models/Attendance');
+const Local = require('../models/Local');
 const { auth, adminOnly } = require('../middlewares/auth');
 const { checkAttendanceType } = require('../utils/calculations');
+const { uploadImage } = require('../config/cloudinary');
 
-// Registrar entrada
+// Registrar entrada con foto y GPS
 router.post('/check-in', auth, async (req, res) => {
   try {
-    const { scheduled_time } = req.body; // Hora programada de entrada
-    const checkInTime = new Date();
+    const {
+      photo,
+      location,
+      device_time,
+      local_id,
+      scheduled_time // Opcional, si no se envía se usa el del local
+    } = req.body;
+
+    const serverTime = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -18,37 +27,75 @@ router.post('/check-in', auth, async (req, res) => {
       date: today
     });
 
-    if (existing) {
+    if (existing && existing.check_in) {
       return res.status(400).json({ error: 'Ya registraste tu entrada hoy' });
     }
 
+    // Obtener horario del local si no se envía
+    let expectedTime = scheduled_time;
+    if (!expectedTime && local_id) {
+      const local = await Local.findById(local_id);
+      if (local && local.opening_time) {
+        expectedTime = local.opening_time;
+      }
+    }
+
     // Calcular minutos de retraso
-    const scheduledDateTime = new Date(today);
-    const [hours, minutes] = scheduled_time.split(':');
-    scheduledDateTime.setHours(parseInt(hours), parseInt(minutes));
+    let minutesLate = 0;
+    let attendanceType = 'present';
 
-    const minutesLate = Math.max(0, Math.floor((checkInTime - scheduledDateTime) / 60000));
-    const attendanceType = checkAttendanceType(minutesLate);
+    if (expectedTime) {
+      const expectedDateTime = new Date(today);
+      const [hours, minutes] = expectedTime.split(':');
+      expectedDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-    const attendance = new Attendance({
+      minutesLate = Math.max(0, Math.floor((serverTime - expectedDateTime) / 60000));
+      attendanceType = checkAttendanceType(minutesLate);
+    }
+
+    // Subir foto a Cloudinary
+    let photoUrl = null;
+    if (photo) {
+      photoUrl = await uploadImage(photo, 'attendance');
+    }
+
+    // Crear o actualizar registro
+    const attendanceData = {
       user_id: req.userId,
+      local_id: local_id || null,
       date: today,
-      check_in: checkInTime,
+      check_in: serverTime,
+      check_in_device_time: device_time ? new Date(device_time) : serverTime,
+      check_in_location: location || null,
+      check_in_photo: photoUrl,
       type: attendanceType,
-      minutes_late: minutesLate
+      minutes_late: minutesLate,
+      expected_check_in: expectedTime ? new Date(today.setHours(...expectedTime.split(':').map(Number))) : null
+    };
+
+    const attendance = existing
+      ? await Attendance.findByIdAndUpdate(existing._id, attendanceData, { new: true })
+      : await Attendance.create(attendanceData);
+
+    res.status(201).json({
+      ...attendance.toObject(),
+      message: minutesLate > 0 ? `Llegaste ${minutesLate} minutos tarde` : 'Entrada registrada a tiempo'
     });
-
-    await attendance.save();
-
-    res.status(201).json(attendance);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// Registrar salida
+// Registrar salida con foto y GPS
 router.post('/check-out', auth, async (req, res) => {
   try {
+    const {
+      photo,
+      location,
+      device_time
+    } = req.body;
+
+    const serverTime = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -61,10 +108,32 @@ router.post('/check-out', auth, async (req, res) => {
       return res.status(404).json({ error: 'No has registrado tu entrada hoy' });
     }
 
-    attendance.check_out = new Date();
+    if (attendance.check_out) {
+      return res.status(400).json({ error: 'Ya registraste tu salida hoy' });
+    }
+
+    // Subir foto a Cloudinary
+    let photoUrl = null;
+    if (photo) {
+      photoUrl = await uploadImage(photo, 'attendance');
+    }
+
+    // Actualizar registro
+    attendance.check_out = serverTime;
+    attendance.check_out_device_time = device_time ? new Date(device_time) : serverTime;
+    attendance.check_out_location = location || null;
+    attendance.check_out_photo = photoUrl;
+
     await attendance.save();
 
-    res.json(attendance);
+    // Calcular horas trabajadas
+    const hoursWorked = ((attendance.check_out - attendance.check_in) / (1000 * 60 * 60)).toFixed(2);
+
+    res.json({
+      ...attendance.toObject(),
+      hours_worked: hoursWorked,
+      message: 'Salida registrada exitosamente'
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -115,7 +184,8 @@ router.get('/', auth, async (req, res) => {
     if (type) query.type = type;
 
     const attendances = await Attendance.find(query)
-      .populate('user_id', 'full_name')
+      .populate('user_id', 'full_name email')
+      .populate('local_id', 'name address')
       .sort({ date: -1 });
 
     res.json(attendances);
