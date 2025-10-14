@@ -8,16 +8,30 @@ const Local = require('../models/Local');
 // Test endpoint - Diagnóstico completo
 router.get('/test', async (req, res) => {
   try {
+    // Extract host from URI
+    let configuredHost = 'unknown';
+    let configuredDatabase = 'unknown';
+    if (process.env.MONGODB_URI) {
+      const match = process.env.MONGODB_URI.match(/@([^/]+)\/([^?]+)/);
+      if (match) {
+        configuredHost = match[1];
+        configuredDatabase = match[2];
+      }
+    }
+
     const diagnostics = {
       timestamp: new Date().toISOString(),
       mongodb: {
         connected: mongoose.connection.readyState === 1,
         state: mongoose.connection.readyState,
         stateDescription: ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] || 'unknown',
-        host: mongoose.connection.host || 'Not connected',
-        name: mongoose.connection.name || 'N/A',
+        connectedHost: mongoose.connection.host || 'Not connected',
+        connectedDatabase: mongoose.connection.name || 'N/A',
+        configuredHost: configuredHost,
+        configuredDatabase: configuredDatabase,
+        hostsMatch: configuredHost.includes('orders') && mongoose.connection.host ? mongoose.connection.host.includes('orders') : false,
         uriPreview: process.env.MONGODB_URI ?
-          process.env.MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@').substring(0, 100) :
+          process.env.MONGODB_URI.replace(/\/\/[^:]+:[^@]+@/, '//***:***@') :
           'Not set'
       },
       collections: {},
