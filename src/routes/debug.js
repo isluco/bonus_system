@@ -120,4 +120,64 @@ router.post('/test-login', async (req, res) => {
   }
 });
 
+// Seed initial admin user (USE ONLY ONCE)
+router.post('/seed-admin', async (req, res) => {
+  try {
+    // Check if admin already exists
+    const existingAdmin = await User.findOne({ role: 'admin' });
+
+    if (existingAdmin) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Admin user already exists',
+        admin: {
+          email: existingAdmin.email,
+          created_at: existingAdmin.created_at
+        }
+      });
+    }
+
+    // Get admin data from request or use defaults
+    const {
+      email = 'admin@bonussystem.com',
+      password = 'Admin123!',
+      full_name = 'Administrador Principal'
+    } = req.body;
+
+    // Create admin user
+    const adminUser = new User({
+      email,
+      password, // Will be hashed by the model's pre-save hook
+      full_name,
+      role: 'admin',
+      is_active: true,
+      created_at: new Date()
+    });
+
+    await adminUser.save();
+
+    res.json({
+      status: 'success',
+      message: 'Admin user created successfully',
+      admin: {
+        email: adminUser.email,
+        full_name: adminUser.full_name,
+        role: adminUser.role,
+        id: adminUser._id
+      },
+      credentials: {
+        email,
+        password: '(check request body or default: Admin123!)'
+      },
+      warning: '⚠️ Change the password immediately after first login!'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
 module.exports = router;
