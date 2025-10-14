@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Moto = require('../models/Moto');
 const { auth } = require('../middlewares/auth');
 
 // Login
@@ -9,15 +10,31 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password, role } = req.body;
 
+    // DEBUG: Test MongoDB connection
+    console.log('🔍 [LOGIN] Request received:', { email, role });
+
+    try {
+      const testMoto = await Moto.findOne().limit(1);
+      console.log('✅ [DB TEST] Motos collection test:', testMoto ? 'Found 1 moto' : 'No motos found');
+    } catch (dbError) {
+      console.error('❌ [DB TEST] Error querying motos:', dbError.message);
+    }
+
     const user = await User.findOne({ email, role, is_active: true });
-    
+
+    console.log('🔍 [LOGIN] User found:', user ? `Yes (${user.email})` : 'No');
+
     if (!user) {
+      console.log('⚠️ [LOGIN] User not found or inactive');
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
     const isMatch = await user.comparePassword(password);
-    
+
+    console.log('🔍 [LOGIN] Password match:', isMatch ? 'Yes' : 'No');
+
     if (!isMatch) {
+      console.log('⚠️ [LOGIN] Password mismatch');
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
