@@ -10,33 +10,26 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password, role } = req.body;
 
-    // DEBUG: Test MongoDB connection
     console.log('🔍 [LOGIN] Request received:', { email, role });
 
-    try {
-      const testMoto = await Moto.findOne().limit(1);
-      console.log('✅ [DB TEST] Motos collection test:', testMoto ? 'Found 1 moto' : 'No motos found');
-    } catch (dbError) {
-      console.error('❌ [DB TEST] Error querying motos:', dbError.message);
-    }
-
     const user = await User.findOne({ email, role, is_active: true });
-
-    console.log('🔍 [LOGIN] User found:', user ? `Yes (${user.email})` : 'No');
+    console.log('🔍 [LOGIN] User query result:', user ? `Found user: ${user.email}, is_active: ${user.is_active}` : 'No user found');
 
     if (!user) {
-      console.log('⚠️ [LOGIN] User not found or inactive');
+      console.log('⚠️ [LOGIN] User not found or inactive - returning 401');
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
+    console.log('🔍 [LOGIN] Comparing password...');
     const isMatch = await user.comparePassword(password);
-
-    console.log('🔍 [LOGIN] Password match:', isMatch ? 'Yes' : 'No');
+    console.log('🔍 [LOGIN] Password match result:', isMatch);
 
     if (!isMatch) {
-      console.log('⚠️ [LOGIN] Password mismatch');
+      console.log('⚠️ [LOGIN] Password mismatch - returning 401');
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
+
+    console.log('✅ [LOGIN] Authentication successful, generating token...');
 
     const token = jwt.sign(
       { userId: user._id, role: user.role },
@@ -46,6 +39,8 @@ router.post('/login', async (req, res) => {
 
     user.last_login = new Date();
     await user.save();
+
+    console.log('✅ [LOGIN] Login successful, sending response');
 
     res.json({
       token,
@@ -58,6 +53,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('❌ [LOGIN] Error during login:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

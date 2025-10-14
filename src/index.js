@@ -56,6 +56,19 @@ const connectDB = async () => {
       socketTimeoutMS: 45000,
     });
     console.log('✅ MongoDB Connected');
+
+    // Test database connection with a simple query
+    const Moto = require('./models/Moto');
+    const testMoto = await Moto.findOne().limit(1);
+    console.log('🔍 [DB TEST] Motos collection:', testMoto ? `Found: ${testMoto.plate || 'moto found'}` : 'Empty collection');
+
+    const User = require('./models/User');
+    const userCount = await User.countDocuments();
+    console.log('🔍 [DB TEST] Users count:', userCount);
+
+    const adminUser = await User.findOne({ role: 'admin' });
+    console.log('🔍 [DB TEST] Admin user exists:', adminUser ? `Yes (${adminUser.email})` : 'No');
+
   } catch (err) {
     console.error('❌ MongoDB Error:', err.message);
   }
