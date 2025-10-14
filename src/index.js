@@ -91,6 +91,7 @@ app.use('/api/routes', require('./routes/routes'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/config', require('./routes/config'));
 app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/debug', require('./routes/debug'));
 
 // Health check
 app.get('/', (req, res) => {
