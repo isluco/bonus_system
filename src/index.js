@@ -95,10 +95,11 @@ app.use('/api/debug', require('./routes/debug'));
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     message: 'Bonus System API',
     status: 'running',
-    version: '1.0.0'
+    version: '1.0.1',
+    timestamp: new Date().toISOString()
   });
 });
 
