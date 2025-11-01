@@ -6,13 +6,17 @@ const { auth, adminOnly } = require('../middlewares/auth');
 // Crear máquina
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const { type, folio, local_id, status } = req.body;
+    const { type, folio, serial_number, brand, model, local_id, status, installation_date } = req.body;
 
     const machine = new Machine({
       type,
       folio,
+      serial_number: serial_number || '',
+      brand: brand || '',
+      model: model || '',
       local_id,
-      status: status || 'active'
+      status: status || 'active',
+      installation_date: installation_date || Date.now()
     });
 
     await machine.save();
@@ -39,6 +43,22 @@ router.get('/', auth, async (req, res) => {
       .sort({ created_at: -1 });
 
     res.json(machines);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener una máquina por ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const machine = await Machine.findById(req.params.id)
+      .populate('local_id', 'name');
+
+    if (!machine) {
+      return res.status(404).json({ error: 'Máquina no encontrada' });
+    }
+
+    res.json(machine);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
