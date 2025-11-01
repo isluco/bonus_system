@@ -10,6 +10,18 @@ const machineSchema = new mongoose.Schema({
     required: true,
     unique: true
   },
+  serial_number: {
+    type: String,
+    default: ''
+  },
+  brand: {
+    type: String,
+    default: ''
+  },
+  model: {
+    type: String,
+    default: ''
+  },
   local_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Local',
@@ -17,7 +29,7 @@ const machineSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['active', 'stopped', 'maintenance'],
+    enum: ['active', 'stopped', 'maintenance', 'retired'],
     default: 'active'
   },
   installation_date: {
