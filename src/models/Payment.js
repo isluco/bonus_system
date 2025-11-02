@@ -19,6 +19,26 @@ const paymentSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  // Para servicios recurrentes del local
+  service_type: {
+    type: String,
+    enum: ['luz', 'internet', 'agua', 'renta'],
+  },
+  period: {
+    month: {
+      type: Number,
+      min: 1,
+      max: 12
+    },
+    year: {
+      type: Number
+    }
+  },
+  service_details: {
+    account: String,
+    provider: String,
+    cutoff_date: Number
+  },
   // Para salarios
   salary_details: {
     gross_salary: Number,
@@ -51,5 +71,36 @@ const paymentSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Índices para búsquedas eficientes
+paymentSchema.index({ local_id: 1, type: 1, status: 1 });
+paymentSchema.index({ status: 1, due_date: 1 });
+paymentSchema.index({ local_id: 1, service_type: 1, period: 1 });
+
+// Método para marcar como pagado
+paymentSchema.methods.markAsPaid = function(paidBy) {
+  this.status = 'paid';
+  this.paid_date = new Date();
+  if (paidBy) this.paid_by = paidBy;
+  return this.save();
+};
+
+// Método estático para actualizar pagos vencidos
+paymentSchema.statics.updateOverduePayments = async function() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const result = await this.updateMany(
+    {
+      status: 'pending',
+      due_date: { $lt: today }
+    },
+    {
+      status: 'overdue'
+    }
+  );
+
+  return result;
+};
 
 module.exports = mongoose.model('Payment', paymentSchema);

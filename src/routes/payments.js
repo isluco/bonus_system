@@ -213,4 +213,270 @@ router.get('/:id/receipt', auth, async (req, res) => {
   }
 });
 
+// ========================================
+// RUTAS PARA SERVICIOS RECURRENTES
+// ========================================
+
+// Listar pagos de servicios recurrentes
+router.get('/services/recurring', auth, async (req, res) => {
+  try {
+    const { local_id, status, service_type, month, year } = req.query;
+    let query = { type: 'service' };
+
+    if (local_id) query.local_id = local_id;
+    if (status) query.status = status;
+    if (service_type) query.service_type = service_type;
+    if (month && year) {
+      query['period.month'] = parseInt(month);
+      query['period.year'] = parseInt(year);
+    }
+
+    const payments = await Payment.find(query)
+      .populate('local_id', 'name')
+      .populate('paid_by', 'full_name')
+      .sort({ due_date: -1, created_at: -1 });
+
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener pagos de servicios de un local específico
+router.get('/services/local/:localId', auth, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = {
+      local_id: req.params.localId,
+      type: 'service',
+      service_type: { $exists: true } // Solo servicios recurrentes
+    };
+
+    if (status) query.status = status;
+
+    const payments = await Payment.find(query)
+      .populate('paid_by', 'full_name')
+      .sort({ due_date: -1 });
+
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Crear pago de servicio recurrente manualmente
+router.post('/services/recurring', auth, adminOnly, async (req, res) => {
+  try {
+    const { local_id, service_type, amount, due_date, period, service_details, notes } = req.body;
+
+    const payment = new Payment({
+      type: 'service',
+      local_id,
+      service_type,
+      amount,
+      due_date,
+      period,
+      service_details,
+      notes,
+      status: 'pending'
+    });
+
+    await payment.save();
+    await payment.populate('local_id', 'name');
+
+    res.status(201).json(payment);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Marcar pago como pagado
+router.put('/services/:id/pay', auth, async (req, res) => {
+  try {
+    const { notes, evidence } = req.body;
+
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) {
+      return res.status(404).json({ error: 'Pago no encontrado' });
+    }
+
+    // Subir evidencia si se proporciona
+    if (evidence) {
+      payment.evidence_url = await uploadImage(evidence, 'payments');
+    }
+
+    await payment.markAsPaid(req.userId);
+
+    if (notes) payment.notes = notes;
+    await payment.save();
+
+    // Descontar del fondo del local
+    const Local = require('../models/Local');
+    const local = await Local.findById(payment.local_id);
+    if (local) {
+      local.current_fund -= payment.amount;
+      await local.save();
+    }
+
+    await payment.populate('local_id', 'name');
+    await payment.populate('paid_by', 'full_name');
+
+    res.json(payment);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Generar pagos automáticamente para un mes específico
+router.post('/services/generate', auth, adminOnly, async (req, res) => {
+  try {
+    const { month, year } = req.body;
+
+    if (!month || !year) {
+      return res.status(400).json({ error: 'Mes y año son requeridos' });
+    }
+
+    const Local = require('../models/Local');
+    const locales = await Local.find({ status: 'active' });
+
+    const paymentsCreated = [];
+    const errors = [];
+
+    for (const local of locales) {
+      // Procesar cada servicio activo
+      for (const [serviceType, serviceConfig] of Object.entries(local.services)) {
+        if (!serviceConfig.active || !serviceConfig.amount || serviceConfig.amount <= 0) {
+          continue;
+        }
+
+        // Verificar si ya existe un pago para este período
+        const existingPayment = await Payment.findOne({
+          local_id: local._id,
+          service_type: serviceType,
+          'period.month': month,
+          'period.year': year
+        });
+
+        if (existingPayment) {
+          continue;
+        }
+
+        // Calcular fecha de vencimiento
+        let dueDate = new Date(year, month - 1, 1);
+
+        if (serviceType === 'renta' && serviceConfig.payment_date) {
+          dueDate.setDate(serviceConfig.payment_date);
+        } else if (serviceConfig.cutoff_date) {
+          dueDate.setDate(serviceConfig.cutoff_date);
+        }
+
+        // Crear el pago
+        try {
+          const payment = new Payment({
+            type: 'service',
+            local_id: local._id,
+            service_type: serviceType,
+            amount: serviceConfig.amount,
+            due_date: dueDate,
+            period: { month, year },
+            service_details: {
+              account: serviceConfig.account || '',
+              provider: serviceConfig.provider || '',
+              cutoff_date: serviceConfig.cutoff_date || serviceConfig.payment_date
+            },
+            status: 'pending'
+          });
+
+          await payment.save();
+          paymentsCreated.push({
+            local: local.name,
+            service: serviceType,
+            amount: payment.amount,
+            due_date: dueDate
+          });
+        } catch (error) {
+          errors.push({
+            local: local.name,
+            service: serviceType,
+            error: error.message
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      paymentsCreated: paymentsCreated.length,
+      errors: errors.length,
+      details: {
+        payments: paymentsCreated,
+        errors
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener resumen de pagos
+router.get('/services/summary', auth, async (req, res) => {
+  try {
+    const { local_id, month, year } = req.query;
+    let matchQuery = {
+      type: 'service',
+      service_type: { $exists: true }
+    };
+
+    if (local_id) matchQuery.local_id = local_id;
+    if (month && year) {
+      matchQuery['period.month'] = parseInt(month);
+      matchQuery['period.year'] = parseInt(year);
+    }
+
+    const summary = await Payment.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          total: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Formatear respuesta
+    const result = {
+      pending: { count: 0, total: 0 },
+      paid: { count: 0, total: 0 },
+      overdue: { count: 0, total: 0 }
+    };
+
+    summary.forEach(item => {
+      if (result[item._id]) {
+        result[item._id] = {
+          count: item.count,
+          total: item.total
+        };
+      }
+    });
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Actualizar pagos vencidos (para ejecutar por cron)
+router.post('/services/update-overdue', auth, adminOnly, async (req, res) => {
+  try {
+    const result = await Payment.updateOverduePayments();
+    res.json({
+      success: true,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
