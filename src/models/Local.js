@@ -29,6 +29,10 @@ const localSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  assigned_machines: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Machine'
+  }],
   status: {
     type: String,
     enum: ['active', 'inactive', 'maintenance'],

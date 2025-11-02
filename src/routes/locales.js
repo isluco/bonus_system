@@ -8,7 +8,7 @@ const { uploadImage } = require('../config/cloudinary');
 // Crear local
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const { name, address, initial_fund, minimum_fund, photo, assigned_user_id, services, schedule } = req.body;
+    const { name, address, initial_fund, minimum_fund, photo, assigned_user_id, assigned_machines, services, schedule } = req.body;
 
     let photo_url = null;
     if (photo) {
@@ -23,6 +23,7 @@ router.post('/', auth, adminOnly, async (req, res) => {
       minimum_fund: minimum_fund || 1500,
       photo_url,
       assigned_user_id,
+      assigned_machines: assigned_machines || [],
       services,
       schedule
     });
