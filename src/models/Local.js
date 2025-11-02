@@ -38,24 +38,84 @@ const localSchema = new mongoose.Schema({
     enum: ['active', 'inactive', 'maintenance'],
     default: 'active'
   },
-  services: [{
-    type: {
-      type: String,
-      enum: ['electricity', 'water', 'internet', 'rent']
+  services: {
+    luz: {
+      active: {
+        type: Boolean,
+        default: false
+      },
+      account: {
+        type: String,
+        default: ''
+      },
+      cutoff_date: {
+        type: Number,
+        min: 1,
+        max: 31
+      },
+      amount: {
+        type: Number,
+        default: 0
+      },
+      notice_days: {
+        type: Number,
+        default: 3
+      }
     },
-    provider: String,
-    account_number: String,
-    amount: Number,
-    due_date: Number, // día del mes (1-31)
-    reminder_days: {
-      type: Number,
-      default: 7
+    internet: {
+      active: {
+        type: Boolean,
+        default: false
+      },
+      account: {
+        type: String,
+        default: ''
+      },
+      cutoff_date: {
+        type: Number,
+        min: 1,
+        max: 31
+      },
+      amount: {
+        type: Number,
+        default: 0
+      },
+      provider: {
+        type: String,
+        default: ''
+      }
     },
-    is_active: {
-      type: Boolean,
-      default: true
+    agua: {
+      active: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0
+      },
+      cutoff_date: {
+        type: Number,
+        min: 1,
+        max: 31
+      }
+    },
+    renta: {
+      active: {
+        type: Boolean,
+        default: false
+      },
+      amount: {
+        type: Number,
+        default: 0
+      },
+      payment_date: {
+        type: Number,
+        min: 1,
+        max: 31
+      }
     }
-  }],
+  },
   schedule: {
     open_time: {
       type: String,
