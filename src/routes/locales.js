@@ -29,7 +29,17 @@ router.post('/', auth, adminOnly, async (req, res) => {
     });
 
     await local.save();
+
+    // Actualizar local_id en las máquinas asignadas
+    if (assigned_machines && assigned_machines.length > 0) {
+      await Machine.updateMany(
+        { _id: { $in: assigned_machines } },
+        { local_id: local._id }
+      );
+    }
+
     await local.populate('assigned_user_id', 'full_name email');
+    await local.populate('assigned_machines');
 
     res.status(201).json(local);
   } catch (error) {
@@ -70,16 +80,21 @@ router.get('/', auth, async (req, res) => {
 router.get('/:id', auth, async (req, res) => {
   try {
     const local = await Local.findById(req.params.id)
-      .populate('assigned_user_id', 'full_name email phone');
+      .populate('assigned_user_id', 'full_name email phone')
+      .populate('assigned_machines');
 
     if (!local) {
       return res.status(404).json({ error: 'Local no encontrado' });
     }
 
-    // Obtener máquinas del local
-    const machines = await Machine.find({ local_id: req.params.id });
+    // Renombrar assigned_machines a machines para el frontend
+    const localObj = local.toObject();
+    localObj.machines = localObj.assigned_machines;
 
-    res.json({ ...local.toObject(), machines });
+    console.log('Local detail response:', JSON.stringify(localObj, null, 2));
+    console.log('Machines:', localObj.machines);
+
+    res.json(localObj);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -88,17 +103,48 @@ router.get('/:id', auth, async (req, res) => {
 // Actualizar local
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { photo, ...updates } = req.body;
+    const { photo, assigned_machines, ...updates } = req.body;
 
     if (photo && photo.startsWith('data:image')) {
       updates.photo_url = await uploadImage(photo, 'locales');
+    }
+
+    // Si hay assigned_machines, actualizar el local_id de cada máquina
+    if (assigned_machines) {
+      // Obtener el local anterior para saber qué máquinas remover
+      const oldLocal = await Local.findById(req.params.id);
+
+      // Remover local_id de máquinas que ya no están asignadas
+      if (oldLocal && oldLocal.assigned_machines) {
+        const removedMachines = oldLocal.assigned_machines.filter(
+          machineId => !assigned_machines.includes(machineId.toString())
+        );
+
+        if (removedMachines.length > 0) {
+          await Machine.updateMany(
+            { _id: { $in: removedMachines } },
+            { $unset: { local_id: "" } }
+          );
+        }
+      }
+
+      // Asignar local_id a las nuevas máquinas
+      if (assigned_machines.length > 0) {
+        await Machine.updateMany(
+          { _id: { $in: assigned_machines } },
+          { local_id: req.params.id }
+        );
+      }
+
+      updates.assigned_machines = assigned_machines;
     }
 
     const local = await Local.findByIdAndUpdate(
       req.params.id,
       updates,
       { new: true, runValidators: true }
-    ).populate('assigned_user_id');
+    ).populate('assigned_user_id')
+     .populate('assigned_machines');
 
     if (!local) {
       return res.status(404).json({ error: 'Local no encontrado' });
