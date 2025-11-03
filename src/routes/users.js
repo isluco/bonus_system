@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const Moto = require('../models/Moto');
 const { auth, adminOnly } = require('../middlewares/auth');
 const { uploadImage } = require('../config/cloudinary');
 
 // Crear usuario
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
-    const { email, password, role, full_name, phone, address, photo, ine_document, nss, license, assigned_local_id, weekly_salary } = req.body;
+    const { email, password, role, full_name, phone, address, photo, ine_document, nss, license, assigned_local_id, weekly_salary, moto_id } = req.body;
 
     // Verificar si el email ya existe
     const existingUser = await User.findOne({ email });
@@ -41,6 +42,11 @@ router.post('/', auth, adminOnly, async (req, res) => {
     });
 
     await user.save();
+
+    // Si el rol es moto y se proporcionó moto_id, actualizar la moto
+    if (role === 'moto' && moto_id) {
+      await Moto.findByIdAndUpdate(moto_id, { assigned_user_id: user._id });
+    }
 
     res.status(201).json(user);
   } catch (error) {
@@ -82,12 +88,27 @@ router.get('/:id', auth, async (req, res) => {
     const user = await User.findById(req.params.id)
       .select('-password')
       .populate('assigned_local_id');
-    
+
     if (!user) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
-    res.json(user);
+    // Si el usuario es de rol moto, buscar la moto asignada
+    let moto_id = null;
+    if (user.role === 'moto') {
+      const moto = await Moto.findOne({ assigned_user_id: user._id });
+      if (moto) {
+        moto_id = moto;
+      }
+    }
+
+    // Agregar moto_id al objeto de respuesta
+    const userObj = user.toObject();
+    if (moto_id) {
+      userObj.moto_id = moto_id;
+    }
+
+    res.json(userObj);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -96,10 +117,28 @@ router.get('/:id', auth, async (req, res) => {
 // Actualizar usuario
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { photo, ...updates } = req.body;
+    const { photo, moto_id, ...updates } = req.body;
 
     if (photo && photo.startsWith('data:image')) {
       updates.photo_url = await uploadImage(photo, 'users');
+    }
+
+    // Si se está actualizando un usuario de rol moto y se proporcionó moto_id
+    if (updates.role === 'moto' && moto_id) {
+      // Primero, desasignar cualquier moto previamente asignada a este usuario
+      await Moto.updateMany(
+        { assigned_user_id: req.params.id },
+        { $unset: { assigned_user_id: 1 } }
+      );
+
+      // Luego, asignar la nueva moto
+      await Moto.findByIdAndUpdate(moto_id, { assigned_user_id: req.params.id });
+    } else if (updates.role && updates.role !== 'moto') {
+      // Si se cambió el rol a algo diferente de moto, desasignar cualquier moto
+      await Moto.updateMany(
+        { assigned_user_id: req.params.id },
+        { $unset: { assigned_user_id: 1 } }
+      );
     }
 
     const user = await User.findByIdAndUpdate(
