@@ -66,83 +66,6 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Obtener moto por ID
-router.get('/:id', auth, async (req, res) => {
-  try {
-    const moto = await Moto.findById(req.params.id)
-      .populate('assigned_user_id');
-
-    if (!moto) {
-      return res.status(404).json({ error: 'Moto no encontrada' });
-    }
-
-    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
-
-    res.json({
-      ...moto.toObject(),
-      service_info: serviceInfo
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Actualizar kilometraje
-router.post('/:id/update-km', auth, async (req, res) => {
-  try {
-    const { current_km } = req.body;
-
-    const moto = await Moto.findById(req.params.id);
-    
-    if (!moto) {
-      return res.status(404).json({ error: 'Moto no encontrada' });
-    }
-
-    moto.current_km = current_km;
-    await moto.save();
-
-    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
-
-    res.json({
-      ...moto.toObject(),
-      service_info: serviceInfo
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Registrar servicio
-router.post('/:id/service', auth, async (req, res) => {
-  try {
-    const { type, cost, description } = req.body;
-
-    const moto = await Moto.findById(req.params.id);
-    
-    if (!moto) {
-      return res.status(404).json({ error: 'Moto no encontrada' });
-    }
-
-    moto.services.push({
-      type,
-      km_at_service: moto.current_km,
-      cost,
-      description,
-      completed: true,
-      completed_at: new Date()
-    });
-
-    // Actualizar último servicio
-    moto.last_service_km = moto.current_km;
-    
-    await moto.save();
-
-    res.json(moto);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Obtener moto del usuario actual
 router.get('/my-moto', auth, async (req, res) => {
   try {
@@ -223,6 +146,83 @@ router.get('/km-history', auth, async (req, res) => {
       .limit(50);
 
     res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener moto por ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const moto = await Moto.findById(req.params.id)
+      .populate('assigned_user_id');
+
+    if (!moto) {
+      return res.status(404).json({ error: 'Moto no encontrada' });
+    }
+
+    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
+
+    res.json({
+      ...moto.toObject(),
+      service_info: serviceInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Actualizar kilometraje
+router.post('/:id/update-km', auth, async (req, res) => {
+  try {
+    const { current_km } = req.body;
+
+    const moto = await Moto.findById(req.params.id);
+    
+    if (!moto) {
+      return res.status(404).json({ error: 'Moto no encontrada' });
+    }
+
+    moto.current_km = current_km;
+    await moto.save();
+
+    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
+
+    res.json({
+      ...moto.toObject(),
+      service_info: serviceInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Registrar servicio
+router.post('/:id/service', auth, async (req, res) => {
+  try {
+    const { type, cost, description } = req.body;
+
+    const moto = await Moto.findById(req.params.id);
+    
+    if (!moto) {
+      return res.status(404).json({ error: 'Moto no encontrada' });
+    }
+
+    moto.services.push({
+      type,
+      km_at_service: moto.current_km,
+      cost,
+      description,
+      completed: true,
+      completed_at: new Date()
+    });
+
+    // Actualizar último servicio
+    moto.last_service_km = moto.current_km;
+    
+    await moto.save();
+
+    res.json(moto);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
