@@ -33,6 +33,14 @@ const motoSchema = new mongoose.Schema({
   current_km: Number,
   last_service_km: Number,
   photo_url: String,
+  assigned_fund: {
+    type: Number,
+    default: 0
+  },
+  current_fund: {
+    type: Number,
+    default: 0
+  },
   status: {
     type: String,
     enum: ['active', 'in_service', 'inactive'],

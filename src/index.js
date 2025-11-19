@@ -92,6 +92,12 @@ app.use('/api/reports', require('./routes/reports'));
 app.use('/api/config', require('./routes/config'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/debug', require('./routes/debug'));
+app.use('/api/incidents', require('./routes/incidents'));
+app.use('/api/local-visits', require('./routes/local-visits'));
+app.use('/api/change-requests', require('./routes/change-requests'));
+app.use('/api/alerts', require('./routes/alerts'));
+app.use('/api/exit-reports', require('./routes/exit-reports'));
+app.use('/api/salary-payments', require('./routes/salary-payments'));
 
 // Health check
 app.get('/', (req, res) => {

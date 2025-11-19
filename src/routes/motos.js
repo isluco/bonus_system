@@ -143,6 +143,91 @@ router.post('/:id/service', auth, async (req, res) => {
   }
 });
 
+// Obtener moto del usuario actual
+router.get('/my-moto', auth, async (req, res) => {
+  try {
+    const moto = await Moto.findOne({ assigned_user_id: req.userId })
+      .populate('assigned_user_id', 'full_name employee_id');
+
+    if (!moto) {
+      return res.status(404).json({ error: 'No tienes una moto asignada' });
+    }
+
+    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
+
+    res.json({
+      ...moto.toObject(),
+      service_info: serviceInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Registrar kilometraje con historial
+router.post('/register-km', auth, async (req, res) => {
+  try {
+    const { kilometrage, location, notes } = req.body;
+
+    const moto = await Moto.findOne({ assigned_user_id: req.userId });
+
+    if (!moto) {
+      return res.status(404).json({ error: 'No tienes una moto asignada' });
+    }
+
+    const MotoKilometrageHistory = require('../models/MotoKilometrageHistory');
+
+    // Crear historial
+    const history = new MotoKilometrageHistory({
+      moto_id: moto._id,
+      user_id: req.userId,
+      kilometrage,
+      previous_kilometrage: moto.current_km,
+      difference: kilometrage - (moto.current_km || 0),
+      location,
+      notes
+    });
+
+    await history.save();
+
+    // Actualizar moto
+    moto.current_km = kilometrage;
+    await moto.save();
+
+    const serviceInfo = needsService(moto.current_km, moto.last_service_km);
+
+    res.json({
+      ...moto.toObject(),
+      service_info: serviceInfo,
+      history
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener historial de kilometraje
+router.get('/km-history', auth, async (req, res) => {
+  try {
+    const moto = await Moto.findOne({ assigned_user_id: req.userId });
+
+    if (!moto) {
+      return res.status(404).json({ error: 'No tienes una moto asignada' });
+    }
+
+    const MotoKilometrageHistory = require('../models/MotoKilometrageHistory');
+
+    const history = await MotoKilometrageHistory.find({ moto_id: moto._id })
+      .populate('user_id', 'full_name')
+      .sort({ created_at: -1 })
+      .limit(50);
+
+    res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Actualizar moto
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
