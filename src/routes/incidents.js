@@ -7,11 +7,23 @@ const { uploadImage } = require('../config/cloudinary');
 // Crear incidente (moto)
 router.post('/', auth, motoOnly, async (req, res) => {
   try {
-    const { moto_id, reason, description, photo, location } = req.body;
+    const { reason, description, photo, location } = req.body;
+
+    // Obtener el moto_id del usuario autenticado
+    const User = require('../models/User');
+    const user = await User.findById(req.userId);
+    const moto_id = user.assigned_moto;
 
     let photo_url = null;
     if (photo && photo.startsWith('data:image')) {
-      photo_url = await uploadImage(photo, 'incidents');
+      try {
+        photo_url = await uploadImage(photo, 'incidents');
+      } catch (uploadError) {
+        console.error('Error uploading image to Cloudinary:', uploadError);
+        // Si Cloudinary falla, guardar la imagen en base64 directamente (temporal)
+        // En producción, deberías tener Cloudinary configurado
+        photo_url = null; // Por ahora no guardamos la imagen si Cloudinary falla
+      }
     }
 
     const incident = new Incident({
@@ -28,7 +40,8 @@ router.post('/', auth, motoOnly, async (req, res) => {
 
     res.status(201).json(incident);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Error creating incident:', error);
+    res.status(500).json({ error: error.message || 'Error al crear el incidente' });
   }
 });
 
