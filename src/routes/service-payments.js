@@ -2,14 +2,13 @@ const express = require('express');
 const router = express.Router();
 const ServicePayment = require('../models/ServicePayment');
 const Local = require('../models/Local');
-const authMiddleware = require('../middlewares/authMiddleware');
-const roleMiddleware = require('../middlewares/roleMiddleware');
+const { auth, adminOnly } = require('../middlewares/auth');
 const cloudinary = require('../config/cloudinary');
 
 // @route   GET /api/service-payments
 // @desc    Get all service payments with filters
 // @access  Private (admin)
-router.get('/', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.get('/', auth, adminOnly, async (req, res) => {
   try {
     const { local_id, service_type, status, due_from, due_to } = req.query;
 
@@ -39,7 +38,7 @@ router.get('/', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
 // @route   GET /api/service-payments/pending
 // @desc    Get all pending service payments (including overdue)
 // @access  Private (admin)
-router.get('/pending', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.get('/pending', auth, adminOnly, async (req, res) => {
   try {
     const payments = await ServicePayment.find({
       status: { $in: ['pending', 'overdue'] }
@@ -67,7 +66,7 @@ router.get('/pending', authMiddleware, roleMiddleware(['admin']), async (req, re
 // @route   GET /api/service-payments/local/:localId
 // @desc    Get service payments for a specific local
 // @access  Private
-router.get('/local/:localId', authMiddleware, async (req, res) => {
+router.get('/local/:localId', auth, async (req, res) => {
   try {
     const { localId } = req.params;
     const { status } = req.query;
@@ -89,7 +88,7 @@ router.get('/local/:localId', authMiddleware, async (req, res) => {
 // @route   POST /api/service-payments
 // @desc    Create a new service payment
 // @access  Private (admin)
-router.post('/', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.post('/', auth, adminOnly, async (req, res) => {
   try {
     const {
       local_id,
@@ -136,7 +135,7 @@ router.post('/', authMiddleware, roleMiddleware(['admin']), async (req, res) => 
 // @route   PUT /api/service-payments/:id/pay
 // @desc    Mark a service payment as paid
 // @access  Private (admin)
-router.put('/:id/pay', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.put('/:id/pay', auth, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -201,7 +200,7 @@ router.put('/:id/pay', authMiddleware, roleMiddleware(['admin']), async (req, re
 // @route   PUT /api/service-payments/:id
 // @desc    Update a service payment
 // @access  Private (admin)
-router.put('/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -228,7 +227,7 @@ router.put('/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) =
 // @route   DELETE /api/service-payments/:id
 // @desc    Delete a service payment
 // @access  Private (admin)
-router.delete('/:id', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -254,7 +253,7 @@ router.delete('/:id', authMiddleware, roleMiddleware(['admin']), async (req, res
 // @route   POST /api/service-payments/generate-monthly
 // @desc    Generate monthly service payments for all active services
 // @access  Private (admin)
-router.post('/generate-monthly', authMiddleware, roleMiddleware(['admin']), async (req, res) => {
+router.post('/generate-monthly', auth, adminOnly, async (req, res) => {
   try {
     const { month, year } = req.body;
 
