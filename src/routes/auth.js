@@ -5,15 +5,16 @@ const User = require('../models/User');
 const Moto = require('../models/Moto');
 const { auth } = require('../middlewares/auth');
 
-// Login
+// Login - Auto-detect user role
 router.post('/login', async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password } = req.body;
 
-    console.log('🔍 [LOGIN] Request received:', { email, role });
+    console.log('🔍 [LOGIN] Request received:', { email });
 
-    const user = await User.findOne({ email, role, is_active: true });
-    console.log('🔍 [LOGIN] User query result:', user ? `Found user: ${user.email}, is_active: ${user.is_active}` : 'No user found');
+    // Find user by email only (role will be auto-detected)
+    const user = await User.findOne({ email, is_active: true });
+    console.log('🔍 [LOGIN] User query result:', user ? `Found user: ${user.email}, role: ${user.role}, is_active: ${user.is_active}` : 'No user found');
 
     if (!user) {
       console.log('⚠️ [LOGIN] User not found or inactive - returning 401');
@@ -29,7 +30,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
-    console.log('✅ [LOGIN] Authentication successful, generating token...');
+    console.log(`✅ [LOGIN] Authentication successful for ${user.role} user, generating token...`);
 
     const token = jwt.sign(
       { userId: user._id, role: user.role },
@@ -42,6 +43,12 @@ router.post('/login', async (req, res) => {
 
     console.log('✅ [LOGIN] Login successful, sending response');
 
+    // Populate assigned_local_id for local users and assigned_moto_id for moto users
+    let populatedUser = user;
+    if (user.role === 'local' && user.assigned_local_id) {
+      populatedUser = await User.findById(user._id).populate('assigned_local_id', 'name address');
+    }
+
     res.json({
       token,
       user: {
@@ -49,7 +56,8 @@ router.post('/login', async (req, res) => {
         email: user.email,
         role: user.role,
         full_name: user.full_name,
-        photo_url: user.photo_url
+        photo_url: user.photo_url,
+        assigned_local_id: populatedUser.assigned_local_id || null
       }
     });
   } catch (error) {
