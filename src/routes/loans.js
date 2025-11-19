@@ -7,17 +7,17 @@ const { createNotification } = require('../utils/notifications');
 // Solicitar préstamo
 router.post('/', auth, async (req, res) => {
   try {
-    const { total_amount, reason, digital_signature } = req.body;
+    const { total_amount, weekly_payment: requested_weekly_payment, reason, digital_signature } = req.body;
 
     // Verificar que no tenga préstamos activos
-    const activeLoan = await Loan.findOne({ 
-      user_id: req.userId, 
+    const activeLoan = await Loan.findOne({
+      user_id: req.userId,
       status: { $in: ['pending', 'approved', 'active'] }
     });
 
     if (activeLoan) {
-      return res.status(400).json({ 
-        error: 'Ya tienes un préstamo activo o pendiente de aprobación' 
+      return res.status(400).json({
+        error: 'Ya tienes un préstamo activo o pendiente de aprobación'
       });
     }
 
@@ -26,19 +26,27 @@ router.post('/', auth, async (req, res) => {
       return res.status(400).json({ error: 'Monto máximo de préstamo es $5,000' });
     }
 
-    const weekly_payment = total_amount / 12; // 12 pagos semanales
+    // Usar el pago semanal proporcionado o calcular automáticamente
+    const weekly_payment = requested_weekly_payment || (total_amount / 12); // 12 pagos semanales por defecto
 
     // Crear plan de pagos
     const payment_schedule = [];
     const today = new Date();
-    
-    for (let i = 0; i < 12; i++) {
+    const numberOfPayments = Math.ceil(total_amount / weekly_payment);
+
+    for (let i = 0; i < numberOfPayments; i++) {
       const scheduledDate = new Date(today);
       scheduledDate.setDate(scheduledDate.getDate() + (7 * (i + 1)));
-      
+
+      // El último pago puede ser menor si no es exacto
+      const isLastPayment = i === numberOfPayments - 1;
+      const payment_amount = isLastPayment
+        ? total_amount - (weekly_payment * (numberOfPayments - 1))
+        : weekly_payment;
+
       payment_schedule.push({
         scheduled_date: scheduledDate,
-        payment_amount: weekly_payment,
+        payment_amount: payment_amount,
         status: 'scheduled'
       });
     }
