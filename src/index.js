@@ -98,6 +98,7 @@ app.use('/api/change-requests', require('./routes/change-requests'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/exit-reports', require('./routes/exit-reports'));
 app.use('/api/salary-payments', require('./routes/salary-payments'));
+app.use('/api/service-payments', require('./routes/service-payments'));
 
 // Health check
 app.get('/', (req, res) => {
