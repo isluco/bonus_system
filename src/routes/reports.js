@@ -296,6 +296,120 @@ router.get('/moto-expenses', auth, async (req, res) => {
   }
 });
 
+// Reporte de resultados por local con periodos
+router.get('/local-results/:localId', auth, async (req, res) => {
+  try {
+    const { localId } = req.params;
+    const { period } = req.query; // 'week', 'month', 'year'
+
+    const local = await Local.findById(localId);
+    if (!local) {
+      return res.status(404).json({ error: 'Local no encontrado' });
+    }
+
+    // Calcular fechas según el periodo
+    const now = new Date();
+    let startDate, endDate;
+
+    switch (period) {
+      case 'week':
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+        endDate = now;
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31);
+        break;
+      default:
+        startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+        endDate = now;
+    }
+
+    const dateQuery = {
+      created_at: {
+        $gte: startDate,
+        $lte: endDate
+      },
+      local_id: localId
+    };
+
+    // INGRESOS - Corte bruto (suma de todos los pagos/ingresos del local)
+    const payments = await Payment.find({
+      ...dateQuery,
+      status: 'paid'
+    });
+    const corteBruto = payments.reduce((sum, p) => sum + p.amount, 0);
+
+    // GASTOS - Premios
+    const premios = await Task.find({
+      ...dateQuery,
+      type: 'prize'
+    });
+    const totalPremios = premios.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    // GASTOS - Gastos de moto relacionados al local
+    const gastosMoto = await Expense.find({
+      ...dateQuery,
+      status: 'approved'
+    });
+    const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + e.amount, 0);
+
+    // GASTOS - Servicios fijos (Luz, Internet, Agua, Renta)
+    const ServicePayment = require('../models/ServicePayment');
+    const serviciosPagados = await ServicePayment.find({
+      local_id: localId,
+      paid_date: {
+        $gte: startDate,
+        $lte: endDate
+      },
+      status: 'paid'
+    });
+    const totalServicios = serviciosPagados.reduce((sum, s) => sum + s.amount, 0);
+
+    // GASTOS - Limpieza y otros gastos del local
+    const gastosLimpieza = await Expense.find({
+      ...dateQuery,
+      type: 'cleaning',
+      status: 'approved'
+    });
+    const totalLimpieza = gastosLimpieza.reduce((sum, e) => sum + e.amount, 0);
+
+    // Total de gastos
+    const totalGastos = totalPremios + totalGastosMoto + totalServicios + totalLimpieza;
+
+    // Resultado final
+    const resultadoFinal = corteBruto - totalGastos;
+
+    res.json({
+      local: {
+        id: local._id,
+        name: local.name
+      },
+      periodo: {
+        type: period || 'week',
+        inicio: startDate.toISOString(),
+        fin: endDate.toISOString()
+      },
+      corte_bruto: corteBruto,
+      gastos: {
+        premios: totalPremios,
+        moto: totalGastosMoto,
+        limpieza: totalLimpieza,
+        servicios_fijos: totalServicios,
+        total: totalGastos
+      },
+      resultado_final: resultadoFinal
+    });
+  } catch (error) {
+    console.error('Error getting local results:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Reporte consolidado
 router.get('/consolidated', auth, adminOnly, async (req, res) => {
   try {
