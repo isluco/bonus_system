@@ -337,12 +337,13 @@ router.get('/local-results/:localId', auth, async (req, res) => {
       local_id: localId
     };
 
-    // INGRESOS - Corte bruto (suma de todos los pagos/ingresos del local)
-    const payments = await Payment.find({
+    // INGRESOS - Corte bruto (suma de reportes de salida del local)
+    const ExitReport = require('../models/ExitReport');
+    const exitReports = await ExitReport.find({
       ...dateQuery,
-      status: 'paid'
+      status: 'approved'
     });
-    const corteBruto = payments.reduce((sum, p) => sum + p.amount, 0);
+    const corteBruto = exitReports.reduce((sum, r) => sum + (r.grand_total || 0), 0);
 
     // GASTOS - Premios
     const premios = await Task.find({
@@ -354,6 +355,7 @@ router.get('/local-results/:localId', auth, async (req, res) => {
     // GASTOS - Gastos de moto relacionados al local
     const gastosMoto = await Expense.find({
       ...dateQuery,
+      type: { $in: ['fuel', 'maintenance', 'other'] },
       status: 'approved'
     });
     const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + e.amount, 0);
