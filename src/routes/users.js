@@ -58,9 +58,9 @@ router.post('/', auth, adminOnly, async (req, res) => {
 router.get('/', auth, adminOnly, async (req, res) => {
   try {
     const { role, is_active, search } = req.query;
-    
+
     let query = {};
-    
+
     if (role) query.role = role;
     if (is_active !== undefined) query.is_active = is_active === 'true';
     if (search) {
@@ -76,7 +76,25 @@ router.get('/', auth, adminOnly, async (req, res) => {
       .populate('assigned_local_id', 'name')
       .sort({ created_at: -1 });
 
-    res.json(users);
+    // Obtener todas las motos para buscar asignaciones
+    const motos = await Moto.find({ assigned_user_id: { $ne: null } })
+      .select('brand model plate assigned_user_id');
+
+    // Agregar moto_id a usuarios de rol moto
+    const usersWithMotos = users.map(user => {
+      const userObj = user.toObject();
+      if (user.role === 'moto') {
+        const assignedMoto = motos.find(m =>
+          m.assigned_user_id?.toString() === user._id.toString()
+        );
+        if (assignedMoto) {
+          userObj.moto_id = assignedMoto;
+        }
+      }
+      return userObj;
+    });
+
+    res.json(usersWithMotos);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -416,50 +416,69 @@ router.get('/local-results/:localId', auth, async (req, res) => {
 router.get('/consolidated', auth, adminOnly, async (req, res) => {
   try {
     const { start_date, end_date } = req.query;
-    
-    const dateQuery = {
-      created_at: {
-        $gte: new Date(start_date),
-        $lte: new Date(end_date)
-      }
-    };
 
-    // Obtener todos los locales
+    if (!start_date || !end_date) {
+      return res.status(400).json({ error: 'Se requieren start_date y end_date' });
+    }
+
+    const startDate = new Date(start_date);
+    const endDate = new Date(end_date);
+    endDate.setHours(23, 59, 59, 999); // Incluir todo el día final
+
+    // Obtener todos los locales activos
     const locales = await Local.find({ status: 'active' });
-    
+
+    const ExitReport = require('../models/ExitReport');
+    const ServicePayment = require('../models/ServicePayment');
+
     const results = [];
     let totalIngresos = 0;
     let totalGastos = 0;
 
     for (const local of locales) {
-      // Corte bruto (simulado - debería venir de otra fuente)
-      const corteBruto = local.current_fund - local.initial_fund;
-
-      // Gastos
-      const premios = await Task.find({
-        ...dateQuery,
+      // INGRESOS - Corte bruto desde ExitReport (reportes de salida aprobados)
+      const exitReports = await ExitReport.find({
         local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        status: 'approved'
+      });
+      const corteBruto = exitReports.reduce((sum, r) => sum + (r.grand_total || 0), 0);
+
+      // GASTOS - Premios
+      const premios = await Task.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
         type: 'prize'
       });
       const totalPremios = premios.reduce((sum, p) => sum + (p.amount || 0), 0);
 
+      // GASTOS - Gastos de moto relacionados al local
       const gastosMoto = await Expense.find({
-        ...dateQuery,
         local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
         status: 'approved'
       });
-      const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + e.amount, 0);
+      const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + (e.amount || 0), 0);
 
-      // Servicios pagados
-      const serviciosPagados = await Payment.find({
-        ...dateQuery,
+      // GASTOS - Servicios fijos (Luz, Internet, Agua, Renta)
+      const serviciosPagados = await ServicePayment.find({
         local_id: local._id,
-        type: 'service',
+        paid_date: { $gte: startDate, $lte: endDate },
         status: 'paid'
       });
-      const totalServicios = serviciosPagados.reduce((sum, p) => sum + p.amount, 0);
+      const totalServicios = serviciosPagados.reduce((sum, s) => sum + (s.amount || 0), 0);
 
-      const resultado = corteBruto - totalPremios - totalGastosMoto - totalServicios;
+      // GASTOS - Limpieza
+      const gastosLimpieza = await Expense.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        type: 'cleaning',
+        status: 'approved'
+      });
+      const totalLimpieza = gastosLimpieza.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      const gastosLocal = totalPremios + totalGastosMoto + totalServicios + totalLimpieza;
+      const resultado = corteBruto - gastosLocal;
 
       results.push({
         local: local.name,
@@ -467,21 +486,242 @@ router.get('/consolidated', auth, adminOnly, async (req, res) => {
         premios: totalPremios,
         gastos_moto: totalGastosMoto,
         servicios: totalServicios,
+        limpieza: totalLimpieza,
         resultado
       });
 
       totalIngresos += corteBruto;
-      totalGastos += (totalPremios + totalGastosMoto + totalServicios);
+      totalGastos += gastosLocal;
     }
 
     res.json({
-      periodo: `${new Date(start_date).toLocaleDateString()} - ${new Date(end_date).toLocaleDateString()}`,
+      periodo: {
+        inicio: startDate.toISOString(),
+        fin: endDate.toISOString()
+      },
       ingresos: totalIngresos,
       gastos: totalGastos,
       utilidad: totalIngresos - totalGastos,
       detalle_por_local: results
     });
   } catch (error) {
+    console.error('Error in consolidated report:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Exportar reporte consolidado a Excel
+router.get('/consolidated/export', auth, adminOnly, async (req, res) => {
+  try {
+    const { start_date, end_date } = req.query;
+
+    if (!start_date || !end_date) {
+      return res.status(400).json({ error: 'Se requieren start_date y end_date' });
+    }
+
+    const startDate = new Date(start_date);
+    const endDate = new Date(end_date);
+    endDate.setHours(23, 59, 59, 999);
+
+    const locales = await Local.find({ status: 'active' });
+
+    const ExitReport = require('../models/ExitReport');
+    const ServicePayment = require('../models/ServicePayment');
+
+    const results = [];
+    let totalIngresos = 0;
+    let totalGastos = 0;
+
+    for (const local of locales) {
+      const exitReports = await ExitReport.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        status: 'approved'
+      });
+      const corteBruto = exitReports.reduce((sum, r) => sum + (r.grand_total || 0), 0);
+
+      const premios = await Task.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        type: 'prize'
+      });
+      const totalPremios = premios.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      const gastosMoto = await Expense.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        status: 'approved'
+      });
+      const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      const serviciosPagados = await ServicePayment.find({
+        local_id: local._id,
+        paid_date: { $gte: startDate, $lte: endDate },
+        status: 'paid'
+      });
+      const totalServicios = serviciosPagados.reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      const gastosLimpieza = await Expense.find({
+        local_id: local._id,
+        created_at: { $gte: startDate, $lte: endDate },
+        type: 'cleaning',
+        status: 'approved'
+      });
+      const totalLimpieza = gastosLimpieza.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      const gastosLocal = totalPremios + totalGastosMoto + totalServicios + totalLimpieza;
+      const resultado = corteBruto - gastosLocal;
+
+      results.push({
+        local: local.name,
+        corte_bruto: corteBruto,
+        premios: totalPremios,
+        gastos_moto: totalGastosMoto,
+        servicios: totalServicios,
+        limpieza: totalLimpieza,
+        total_gastos: gastosLocal,
+        resultado
+      });
+
+      totalIngresos += corteBruto;
+      totalGastos += gastosLocal;
+    }
+
+    // Crear Excel
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Bonus System';
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet('Reporte Consolidado');
+
+    // Título
+    worksheet.mergeCells('A1:H1');
+    worksheet.getCell('A1').value = 'REPORTE CONSOLIDADO';
+    worksheet.getCell('A1').font = { bold: true, size: 16 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+
+    // Período
+    worksheet.mergeCells('A2:H2');
+    const periodoStr = `Período: ${startDate.toLocaleDateString('es-MX')} - ${endDate.toLocaleDateString('es-MX')}`;
+    worksheet.getCell('A2').value = periodoStr;
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+
+    // Espacio
+    worksheet.addRow([]);
+
+    // Resumen general
+    worksheet.addRow(['RESUMEN GENERAL']);
+    worksheet.getRow(4).font = { bold: true };
+
+    worksheet.addRow(['Total Ingresos:', totalIngresos]);
+    worksheet.addRow(['Total Gastos:', totalGastos]);
+    worksheet.addRow(['Utilidad:', totalIngresos - totalGastos]);
+
+    // Formato de moneda para resumen
+    ['B5', 'B6', 'B7'].forEach(cell => {
+      worksheet.getCell(cell).numFmt = '"$"#,##0.00';
+    });
+
+    // Color para utilidad
+    if (totalIngresos - totalGastos >= 0) {
+      worksheet.getCell('B7').font = { color: { argb: 'FF008000' }, bold: true };
+    } else {
+      worksheet.getCell('B7').font = { color: { argb: 'FFFF0000' }, bold: true };
+    }
+
+    // Espacio
+    worksheet.addRow([]);
+    worksheet.addRow([]);
+
+    // Detalle por local
+    worksheet.addRow(['DETALLE POR LOCAL']);
+    worksheet.getRow(10).font = { bold: true };
+
+    // Encabezados de tabla
+    const headerRow = worksheet.addRow([
+      'Local',
+      'Corte Bruto',
+      'Premios',
+      'Gastos Moto',
+      'Servicios',
+      'Limpieza',
+      'Total Gastos',
+      'Resultado'
+    ]);
+    headerRow.font = { bold: true };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE0E0E0' }
+    };
+
+    // Datos por local
+    results.forEach(item => {
+      const row = worksheet.addRow([
+        item.local,
+        item.corte_bruto,
+        item.premios,
+        item.gastos_moto,
+        item.servicios,
+        item.limpieza,
+        item.total_gastos,
+        item.resultado
+      ]);
+
+      // Formato de moneda
+      for (let i = 2; i <= 8; i++) {
+        row.getCell(i).numFmt = '"$"#,##0.00';
+      }
+
+      // Color para resultado
+      if (item.resultado >= 0) {
+        row.getCell(8).font = { color: { argb: 'FF008000' } };
+      } else {
+        row.getCell(8).font = { color: { argb: 'FFFF0000' } };
+      }
+    });
+
+    // Fila de totales
+    const totalRow = worksheet.addRow([
+      'TOTAL',
+      totalIngresos,
+      results.reduce((sum, r) => sum + r.premios, 0),
+      results.reduce((sum, r) => sum + r.gastos_moto, 0),
+      results.reduce((sum, r) => sum + r.servicios, 0),
+      results.reduce((sum, r) => sum + r.limpieza, 0),
+      totalGastos,
+      totalIngresos - totalGastos
+    ]);
+    totalRow.font = { bold: true };
+    totalRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFD700' }
+    };
+    for (let i = 2; i <= 8; i++) {
+      totalRow.getCell(i).numFmt = '"$"#,##0.00';
+    }
+
+    // Ajustar anchos de columna
+    worksheet.columns = [
+      { width: 25 },
+      { width: 15 },
+      { width: 12 },
+      { width: 14 },
+      { width: 12 },
+      { width: 12 },
+      { width: 14 },
+      { width: 14 }
+    ];
+
+    // Enviar archivo
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_consolidado_${start_date}_${end_date}.xlsx`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error exporting consolidated report:', error);
     res.status(500).json({ error: error.message });
   }
 });
