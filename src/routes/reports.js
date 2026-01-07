@@ -355,7 +355,7 @@ router.get('/local-results/:localId', auth, async (req, res) => {
     // GASTOS - Gastos de moto relacionados al local
     const gastosMoto = await Expense.find({
       ...dateQuery,
-      type: { $in: ['fuel', 'maintenance', 'other'] },
+      type: { $in: ['gasoline', 'parts', 'wash', 'other'] },
       status: 'approved'
     });
     const totalGastosMoto = gastosMoto.reduce((sum, e) => sum + e.amount, 0);
