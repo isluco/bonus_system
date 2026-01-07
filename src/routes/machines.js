@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Machine = require('../models/Machine');
+const Local = require('../models/Local');
 const { auth, adminOnly } = require('../middlewares/auth');
 
 // Crear máquina
@@ -20,6 +21,15 @@ router.post('/', auth, adminOnly, async (req, res) => {
     });
 
     await machine.save();
+
+    // Sincronizar con el Local: agregar máquina al array assigned_machines
+    if (local_id) {
+      await Local.findByIdAndUpdate(
+        local_id,
+        { $addToSet: { assigned_machines: machine._id } }
+      );
+    }
+
     res.status(201).json(machine);
   } catch (error) {
     if (error.code === 11000) {
@@ -67,14 +77,37 @@ router.get('/:id', auth, async (req, res) => {
 // Actualizar máquina
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
+    // Obtener la máquina actual para ver si cambió el local
+    const oldMachine = await Machine.findById(req.params.id);
+    if (!oldMachine) {
+      return res.status(404).json({ error: 'Máquina no encontrada' });
+    }
+
+    const oldLocalId = oldMachine.local_id?.toString();
+    const newLocalId = req.body.local_id?.toString();
+
     const machine = await Machine.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
     );
 
-    if (!machine) {
-      return res.status(404).json({ error: 'Máquina no encontrada' });
+    // Si cambió el local, actualizar ambos locales
+    if (oldLocalId !== newLocalId) {
+      // Remover del local anterior
+      if (oldLocalId) {
+        await Local.findByIdAndUpdate(
+          oldLocalId,
+          { $pull: { assigned_machines: machine._id } }
+        );
+      }
+      // Agregar al nuevo local
+      if (newLocalId) {
+        await Local.findByIdAndUpdate(
+          newLocalId,
+          { $addToSet: { assigned_machines: machine._id } }
+        );
+      }
     }
 
     res.json(machine);
@@ -86,11 +119,21 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
 // Eliminar máquina
 router.delete('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const machine = await Machine.findByIdAndDelete(req.params.id);
+    const machine = await Machine.findById(req.params.id);
 
     if (!machine) {
       return res.status(404).json({ error: 'Máquina no encontrada' });
     }
+
+    // Remover del local si está asignada
+    if (machine.local_id) {
+      await Local.findByIdAndUpdate(
+        machine.local_id,
+        { $pull: { assigned_machines: machine._id } }
+      );
+    }
+
+    await Machine.findByIdAndDelete(req.params.id);
 
     res.json({ message: 'Máquina eliminada exitosamente' });
   } catch (error) {
