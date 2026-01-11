@@ -9,6 +9,17 @@ const localSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  location: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: 'Point'
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      default: [0, 0]
+    }
+  },
   initial_fund: {
     type: Number,
     required: true,
@@ -137,5 +148,8 @@ const localSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Índice geoespacial para búsquedas por ubicación
+localSchema.index({ location: '2dsphere' });
 
 module.exports = mongoose.model('Local', localSchema);

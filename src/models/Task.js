@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const taskSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['change', 'failure', 'prize', 'refill', 'expense', 'prize_payment'],
+    enum: ['change', 'failure', 'prize', 'refill', 'expense', 'prize_payment', 'alert'],
     required: true
   },
   local_id: {

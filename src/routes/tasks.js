@@ -3,10 +3,12 @@ const router = express.Router();
 const Task = require('../models/Task');
 const User = require('../models/User');
 const Local = require('../models/Local');
+const MotoLocation = require('../models/MotoLocation');
 const { auth, adminOnly, motoOnly, localOnly } = require('../middlewares/auth');
 const { uploadImage } = require('../config/cloudinary');
 const { notifyTaskAssigned, notifyPanicButton, createNotification } = require('../utils/notifications');
 const { calculateETA, isFundSufficient } = require('../utils/calculations');
+const { findNearestMoto } = require('../utils/geoUtils');
 
 // Crear tarea (cambio, falla, premio, etc.)
 router.post('/', auth, async (req, res) => {
@@ -42,13 +44,43 @@ router.post('/', auth, async (req, res) => {
       }
     }
 
-    // Asignar automáticamente a moto (matriz de prioridad - simplificada)
+    // Asignar automáticamente a moto solo si no es una falla
+    // Las fallas deben ser asignadas manualmente por el admin
     let assigned_to = null;
-    if (req.user.role !== 'moto') {
-      const motos = await User.find({ role: 'moto', is_active: true });
-      if (motos.length > 0) {
-        // Asignar al primer moto disponible (mejorar con lógica de cercanía)
-        assigned_to = motos[0]._id;
+    let assignedDistance = null;
+
+    if (req.user.role !== 'moto' && type !== 'failure') {
+      // Obtener coordenadas del local
+      const local = await Local.findById(local_id);
+
+      if (local && local.location && local.location.coordinates &&
+          local.location.coordinates[0] !== 0 && local.location.coordinates[1] !== 0) {
+        // El local tiene coordenadas, buscar moto más cercana
+        const localLng = local.location.coordinates[0];
+        const localLat = local.location.coordinates[1];
+
+        // Obtener últimas ubicaciones de todas las motos
+        const motoLocations = await MotoLocation.getAllLastLocations();
+
+        if (motoLocations.length > 0) {
+          // Encontrar la moto más cercana
+          const nearestMoto = findNearestMoto(motoLocations, localLat, localLng);
+
+          if (nearestMoto) {
+            assigned_to = nearestMoto.user_id;
+            assignedDistance = nearestMoto.distance;
+            console.log(`📍 Tarea asignada a ${nearestMoto.user_name} (${nearestMoto.distance} km del local)`);
+          }
+        }
+      }
+
+      // Si no se pudo asignar por ubicación, asignar al primer moto disponible
+      if (!assigned_to) {
+        const motos = await User.find({ role: 'moto', is_active: true });
+        if (motos.length > 0) {
+          assigned_to = motos[0]._id;
+          console.log('📍 Tarea asignada al primer moto disponible (sin ubicación)');
+        }
       }
     }
 

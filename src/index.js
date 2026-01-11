@@ -99,6 +99,7 @@ app.use('/api/alerts', require('./routes/alerts'));
 app.use('/api/exit-reports', require('./routes/exit-reports'));
 app.use('/api/salary-payments', require('./routes/salary-payments'));
 app.use('/api/service-payments', require('./routes/service-payments'));
+app.use('/api/moto-locations', require('./routes/moto-locations'));
 
 // Health check
 app.get('/', (req, res) => {
