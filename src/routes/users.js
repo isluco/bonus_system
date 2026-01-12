@@ -69,20 +69,6 @@ router.post('/', auth, adminOnly, async (req, res) => {
   }
 });
 
-// Listar empleados de locales (para motos - pago de salarios)
-router.get('/local-employees', auth, async (req, res) => {
-  try {
-    const users = await User.find({ role: 'local', is_active: true })
-      .select('_id full_name weekly_salary assigned_local_id')
-      .populate('assigned_local_id', 'name')
-      .sort({ full_name: 1 });
-
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Listar usuarios
 router.get('/', auth, adminOnly, async (req, res) => {
   try {
