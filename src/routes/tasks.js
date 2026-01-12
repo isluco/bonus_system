@@ -44,12 +44,11 @@ router.post('/', auth, async (req, res) => {
       }
     }
 
-    // Asignar automáticamente a moto solo si no es una falla
-    // Las fallas deben ser asignadas manualmente por el admin
+    // Asignar automáticamente a moto más cercano
     let assigned_to = null;
     let assignedDistance = null;
 
-    if (req.user.role !== 'moto' && type !== 'failure') {
+    if (req.user.role !== 'moto') {
       // Obtener coordenadas del local
       const local = await Local.findById(local_id);
 
@@ -185,7 +184,13 @@ router.post('/:id/accept', auth, motoOnly, async (req, res) => {
       return res.status(404).json({ error: 'Tarea no encontrada' });
     }
 
-    if (task.status !== 'assigned') {
+    // Verificar que la tarea esté asignada al usuario actual
+    if (!task.assigned_to || task.assigned_to.toString() !== req.userId.toString()) {
+      return res.status(403).json({ error: 'Esta tarea no está asignada a ti' });
+    }
+
+    // Permitir aceptar si está en 'created' o 'assigned'
+    if (!['created', 'assigned'].includes(task.status)) {
       return res.status(400).json({ error: 'La tarea no está disponible para aceptar' });
     }
 
