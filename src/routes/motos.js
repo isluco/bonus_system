@@ -70,7 +70,7 @@ router.get('/', auth, async (req, res) => {
 router.get('/my-moto', auth, async (req, res) => {
   try {
     const moto = await Moto.findOne({ assigned_user_id: req.userId })
-      .populate('assigned_user_id', 'full_name employee_id');
+      .populate('assigned_user_id', 'full_name employee_id weekly_salary');
 
     if (!moto) {
       return res.status(404).json({ error: 'No tienes una moto asignada' });
@@ -80,6 +80,7 @@ router.get('/my-moto', auth, async (req, res) => {
 
     res.json({
       ...moto.toObject(),
+      user: moto.assigned_user_id, // Alias para facilitar acceso
       service_info: serviceInfo
     });
   } catch (error) {
