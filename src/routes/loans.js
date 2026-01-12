@@ -7,17 +7,21 @@ const { createNotification } = require('../utils/notifications');
 // Solicitar préstamo
 router.post('/', auth, async (req, res) => {
   try {
-    const { total_amount, weekly_payment: requested_weekly_payment, reason, digital_signature } = req.body;
+    const { total_amount, weekly_payment: requested_weekly_payment, reason, digital_signature, user_id } = req.body;
+
+    // Si es moto registrando préstamo de un empleado, usar user_id del body
+    // Si no, usar el usuario autenticado
+    const targetUserId = user_id || req.userId;
 
     // Verificar que no tenga préstamos activos
     const activeLoan = await Loan.findOne({
-      user_id: req.userId,
+      user_id: targetUserId,
       status: { $in: ['pending', 'approved', 'active'] }
     });
 
     if (activeLoan) {
       return res.status(400).json({
-        error: 'Ya tienes un préstamo activo o pendiente de aprobación'
+        error: 'El empleado ya tiene un préstamo activo o pendiente de aprobación'
       });
     }
 
@@ -52,14 +56,15 @@ router.post('/', auth, async (req, res) => {
     }
 
     const loan = new Loan({
-      user_id: req.userId,
+      user_id: targetUserId,
       total_amount,
       weekly_payment,
       remaining_balance: total_amount,
       reason,
       digital_signature,
       payment_schedule,
-      status: 'pending'
+      status: 'pending',
+      registered_by: req.userId // Quien registró la solicitud
     });
 
     await loan.save();
