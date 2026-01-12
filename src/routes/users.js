@@ -5,6 +5,21 @@ const Moto = require('../models/Moto');
 const { auth, adminOnly } = require('../middlewares/auth');
 const { uploadImage } = require('../config/cloudinary');
 
+// Listar empleados de locales (para motos - pago de salarios)
+// IMPORTANTE: Esta ruta debe estar ANTES de /:id
+router.get('/local-employees', auth, async (req, res) => {
+  try {
+    const users = await User.find({ role: 'local', is_active: true })
+      .select('_id full_name weekly_salary assigned_local_id')
+      .populate('assigned_local_id', 'name')
+      .sort({ full_name: 1 });
+
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Crear usuario
 router.post('/', auth, adminOnly, async (req, res) => {
   try {
@@ -49,6 +64,20 @@ router.post('/', auth, adminOnly, async (req, res) => {
     }
 
     res.status(201).json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Listar empleados de locales (para motos - pago de salarios)
+router.get('/local-employees', auth, async (req, res) => {
+  try {
+    const users = await User.find({ role: 'local', is_active: true })
+      .select('_id full_name weekly_salary assigned_local_id')
+      .populate('assigned_local_id', 'name')
+      .sort({ full_name: 1 });
+
+    res.json(users);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

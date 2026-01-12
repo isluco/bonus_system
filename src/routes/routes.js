@@ -7,19 +7,57 @@ const { uploadImage } = require('../config/cloudinary');
 // Iniciar ruta
 router.post('/start', auth, motoOnly, async (req, res) => {
   try {
-    const { moto_id, start_location } = req.body;
+    const { moto_id, start_location, task_id } = req.body;
+
+    // Verificar si ya hay una ruta activa
+    const existingRoute = await Route.findOne({
+      user_id: req.userId,
+      end_time: null
+    });
+
+    if (existingRoute) {
+      return res.status(400).json({ error: 'Ya tienes una ruta activa' });
+    }
 
     const route = new Route({
       moto_id,
       user_id: req.userId,
       start_location,
       start_time: new Date(),
-      path: [{ ...start_location, timestamp: new Date() }]
+      path: [{ ...start_location, timestamp: new Date() }],
+      tasks: task_id ? [task_id] : []
     });
 
     await route.save();
 
     res.status(201).json(route);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Agregar tarea a ruta activa
+router.post('/:id/add-task', auth, motoOnly, async (req, res) => {
+  try {
+    const { task_id } = req.body;
+
+    const route = await Route.findById(req.params.id);
+
+    if (!route) {
+      return res.status(404).json({ error: 'Ruta no encontrada' });
+    }
+
+    if (route.end_time) {
+      return res.status(400).json({ error: 'La ruta ya fue finalizada' });
+    }
+
+    // Evitar duplicados
+    if (!route.tasks.includes(task_id)) {
+      route.tasks.push(task_id);
+      await route.save();
+    }
+
+    res.json(route);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -112,7 +150,10 @@ router.get('/active', auth, motoOnly, async (req, res) => {
     const activeRoute = await Route.findOne({
       user_id: req.userId,
       end_time: null
-    }).populate('moto_id', 'brand model plate');
+    })
+      .populate('moto_id', 'brand model plate')
+      .populate('tasks', 'type description local_id status')
+      .populate('visits.local_id', 'name address');
 
     if (!activeRoute) {
       return res.status(404).json({ error: 'No hay ruta activa' });
@@ -148,6 +189,7 @@ router.get('/', auth, async (req, res) => {
       .populate('moto_id', 'brand model plate')
       .populate('user_id', 'full_name')
       .populate('visits.local_id', 'name address')
+      .populate('tasks', 'type description status')
       .sort({ start_time: -1 });
 
     res.json(routes);

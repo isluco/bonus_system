@@ -145,7 +145,13 @@ router.get('/km-history', auth, async (req, res) => {
       .sort({ created_at: -1 })
       .limit(50);
 
-    res.json(history);
+    res.json({
+      moto: {
+        _id: moto._id,
+        plate: moto.plate
+      },
+      records: history
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

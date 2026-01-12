@@ -22,6 +22,11 @@ const routeSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // Tareas asociadas a esta ruta
+  tasks: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Task'
+  }],
   start_location: {
     lat: Number,
     lng: Number,
