@@ -106,6 +106,24 @@ router.post('/:id/end', auth, motoOnly, async (req, res) => {
   }
 });
 
+// Obtener ruta activa del usuario
+router.get('/active', auth, motoOnly, async (req, res) => {
+  try {
+    const activeRoute = await Route.findOne({
+      user_id: req.userId,
+      end_time: null
+    }).populate('moto_id', 'brand model plate');
+
+    if (!activeRoute) {
+      return res.status(404).json({ error: 'No hay ruta activa' });
+    }
+
+    res.json(activeRoute);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Listar rutas
 router.get('/', auth, async (req, res) => {
   try {
