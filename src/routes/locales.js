@@ -239,4 +239,31 @@ router.post('/:id/update-fund', auth, async (req, res) => {
   }
 });
 
+// Sincronizar assigned_local_id de todos los usuarios con sus locales
+router.post('/sync-users', auth, adminOnly, async (req, res) => {
+  try {
+    const User = require('../models/User');
+
+    // Obtener todos los locales con usuario asignado
+    const locales = await Local.find({ assigned_user_id: { $ne: null } });
+
+    let updated = 0;
+    for (const local of locales) {
+      if (local.assigned_user_id) {
+        await User.findByIdAndUpdate(local.assigned_user_id, {
+          assigned_local_id: local._id
+        });
+        updated++;
+      }
+    }
+
+    res.json({
+      message: `Sincronización completada. ${updated} usuarios actualizados.`,
+      updated
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
