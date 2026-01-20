@@ -38,6 +38,12 @@ router.post('/', auth, adminOnly, async (req, res) => {
       );
     }
 
+    // Sincronizar assigned_local_id del usuario asignado
+    if (assigned_user_id) {
+      const User = require('../models/User');
+      await User.findByIdAndUpdate(assigned_user_id, { assigned_local_id: local._id });
+    }
+
     await local.populate('assigned_user_id', 'full_name email');
     await local.populate('assigned_machines');
 
@@ -103,19 +109,22 @@ router.get('/:id', auth, async (req, res) => {
 // Actualizar local
 router.put('/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { photo, assigned_machines, ...updates } = req.body;
+    const { photo, assigned_machines, assigned_user_id, ...updates } = req.body;
 
     if (photo && photo.startsWith('data:image')) {
       updates.photo_url = await uploadImage(photo, 'locales');
     }
 
+    // Obtener el local anterior para comparaciones
+    const oldLocal = await Local.findById(req.params.id);
+    if (!oldLocal) {
+      return res.status(404).json({ error: 'Local no encontrado' });
+    }
+
     // Si hay assigned_machines, actualizar el local_id de cada máquina
     if (assigned_machines) {
-      // Obtener el local anterior para saber qué máquinas remover
-      const oldLocal = await Local.findById(req.params.id);
-
       // Remover local_id de máquinas que ya no están asignadas
-      if (oldLocal && oldLocal.assigned_machines) {
+      if (oldLocal.assigned_machines) {
         const removedMachines = oldLocal.assigned_machines.filter(
           machineId => !assigned_machines.includes(machineId.toString())
         );
@@ -139,16 +148,35 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
       updates.assigned_machines = assigned_machines;
     }
 
+    // Sincronizar assigned_local_id del usuario si cambió assigned_user_id
+    if (assigned_user_id !== undefined) {
+      const oldUserId = oldLocal.assigned_user_id?.toString();
+      const newUserId = assigned_user_id?.toString() || null;
+
+      // Si cambió el usuario asignado
+      if (oldUserId !== newUserId) {
+        const User = require('../models/User');
+
+        // Remover assigned_local_id del usuario anterior
+        if (oldUserId) {
+          await User.findByIdAndUpdate(oldUserId, { $unset: { assigned_local_id: "" } });
+        }
+
+        // Asignar assigned_local_id al nuevo usuario
+        if (newUserId) {
+          await User.findByIdAndUpdate(newUserId, { assigned_local_id: req.params.id });
+        }
+      }
+
+      updates.assigned_user_id = assigned_user_id || null;
+    }
+
     const local = await Local.findByIdAndUpdate(
       req.params.id,
       updates,
       { new: true, runValidators: true }
     ).populate('assigned_user_id')
      .populate('assigned_machines');
-
-    if (!local) {
-      return res.status(404).json({ error: 'Local no encontrado' });
-    }
 
     res.json(local);
   } catch (error) {
