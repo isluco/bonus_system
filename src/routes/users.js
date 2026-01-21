@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Moto = require('../models/Moto');
 const { auth, adminOnly } = require('../middlewares/auth');
@@ -154,6 +155,12 @@ router.put('/:id', auth, adminOnly, async (req, res) => {
 
     if (photo && photo.startsWith('data:image')) {
       updates.photo_url = await uploadImage(photo, 'users');
+    }
+
+    // Si se proporciona una contraseña, hashearla manualmente
+    // (findByIdAndUpdate no dispara el middleware pre('save'))
+    if (updates.password) {
+      updates.password = await bcrypt.hash(updates.password, 10);
     }
 
     // Si se está actualizando un usuario de rol moto y se proporcionó moto_id
