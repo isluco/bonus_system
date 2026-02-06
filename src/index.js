@@ -51,6 +51,16 @@ app.use((req, res, next) => {
 // Database connection
 const connectDB = async () => {
   try {
+    // Log para verificar que Vercel tiene la variable de entorno
+    const mongoUri = process.env.MONGODB_URI;
+    if (mongoUri) {
+      const dbName = mongoUri.split('/').pop()?.split('?')[0];
+      console.log('🔧 [ENV CHECK] MONGODB_URI exists:', mongoUri.substring(0, 20) + '...');
+      console.log('🔧 [ENV CHECK] Database name:', dbName || 'unknown');
+    } else {
+      console.error('❌ [ENV CHECK] MONGODB_URI is NOT defined!');
+    }
+
     await mongoose.connect(process.env.MONGODB_URI, {
       serverSelectionTimeoutMS: 30000,
       socketTimeoutMS: 60000,
