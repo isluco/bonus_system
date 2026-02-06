@@ -1279,4 +1279,296 @@ router.get('/consolidated/export', auth, adminOnly, async (req, res) => {
   }
 });
 
+// ==========================================
+// REPORTE ESTADO DE RESULTADOS POR LOCAL (SEMANAL)
+// ==========================================
+router.get('/local-weekly-statement', auth, adminOnly, async (req, res) => {
+  try {
+    const { local_id, start_date, end_date } = req.query;
+
+    if (!local_id) {
+      return res.status(400).json({ error: 'Se requiere local_id' });
+    }
+
+    const local = await Local.findById(local_id);
+    if (!local) {
+      return res.status(404).json({ error: 'Local no encontrado' });
+    }
+
+    // Definir rango de fechas
+    let startDate, endDate;
+    if (start_date && end_date) {
+      startDate = new Date(start_date);
+      endDate = new Date(end_date);
+    } else {
+      // Por defecto: desde apertura del local hasta hoy
+      startDate = local.created_at || new Date(new Date().getFullYear(), 0, 1);
+      endDate = new Date();
+    }
+    endDate.setHours(23, 59, 59, 999);
+
+    const ExitReport = require('../models/ExitReport');
+    const ServicePayment = require('../models/ServicePayment');
+    const SalaryPayment = require('../models/SalaryPayment');
+
+    // Calcular número de semanas
+    const diffTime = Math.abs(endDate - startDate);
+    const totalWeeks = Math.ceil(diffTime / (1000 * 60 * 60 * 24 * 7));
+
+    const weeklyData = [];
+
+    // Procesar cada semana
+    for (let weekNum = 1; weekNum <= totalWeeks; weekNum++) {
+      const weekStart = new Date(startDate);
+      weekStart.setDate(weekStart.getDate() + (weekNum - 1) * 7);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999);
+
+      // Asegurar que no exceda la fecha final
+      if (weekEnd > endDate) {
+        weekEnd.setTime(endDate.getTime());
+      }
+
+      const weekQuery = {
+        local_id: local_id,
+        created_at: { $gte: weekStart, $lte: weekEnd }
+      };
+
+      // CORTE BRUTO - Reportes de salida aprobados
+      const exitReports = await ExitReport.find({
+        ...weekQuery,
+        status: 'approved'
+      });
+      const corte = exitReports.reduce((sum, r) => sum + (r.grand_total || 0), 0);
+
+      // SUELDO - Pagos de salario en la semana
+      const salaryPayments = await SalaryPayment.find({
+        local_id: local_id,
+        paid_date: { $gte: weekStart, $lte: weekEnd },
+        status: 'paid'
+      });
+      const sueldo = salaryPayments.reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      // GASTOS - Gastos generales (limpieza, otros)
+      const generalExpenses = await Expense.find({
+        ...weekQuery,
+        type: { $in: ['cleaning', 'other'] },
+        status: 'approved'
+      });
+      const gastos = generalExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      // RELLENO - Tasks tipo refill
+      const refills = await Task.find({
+        ...weekQuery,
+        type: 'refill'
+      });
+      const relleno = refills.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+      // SERVICIOS - Buscar pagos de servicios en esta semana
+      const serviciosWeek = await ServicePayment.find({
+        local_id: local_id,
+        paid_date: { $gte: weekStart, $lte: weekEnd },
+        status: 'paid'
+      });
+
+      const cfe = serviciosWeek
+        .filter(s => s.service_type === 'luz')
+        .reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      const renta = serviciosWeek
+        .filter(s => s.service_type === 'renta')
+        .reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      const internet = serviciosWeek
+        .filter(s => s.service_type === 'internet')
+        .reduce((sum, s) => sum + (s.amount || 0), 0);
+
+      // RUTA - Gastos de moto/ruta relacionados al local
+      const routeExpenses = await Expense.find({
+        ...weekQuery,
+        type: { $in: ['gasoline', 'parts', 'wash'] },
+        status: 'approved'
+      });
+      const ruta = routeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+
+      // PREMIOS - para restar del corte
+      const premios = await Task.find({
+        ...weekQuery,
+        type: 'prize'
+      });
+      const totalPremios = premios.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+      // Calcular totales
+      const egresos = sueldo + gastos + relleno + cfe + renta + internet + ruta;
+      const corteNeto = corte - totalPremios; // Corte menos premios
+      const total = corteNeto - egresos;
+
+      // Formatear rango de semana
+      const weekRange = `${String(weekStart.getDate()).padStart(2, '0')}-${String(weekEnd.getDate()).padStart(2, '0')}/${getMonthAbbr(weekStart.getMonth())}-${getMonthAbbr(weekEnd.getMonth())}`;
+
+      weeklyData.push({
+        semana: `${String(weekNum).padStart(2, '0')} ${weekRange}`,
+        sueldo,
+        gastos,
+        relleno,
+        cfe,
+        renta,
+        internet,
+        ruta,
+        egresos,
+        corte: corteNeto,
+        total
+      });
+    }
+
+    // Crear Excel
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Bonus System';
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet('Estado de Resultados');
+
+    // Título
+    worksheet.mergeCells('A1:K1');
+    worksheet.getCell('A1').value = `ESTADO DE RESULTADOS - ${local.name.toUpperCase()}`;
+    worksheet.getCell('A1').font = { bold: true, size: 14 };
+    worksheet.getCell('A1').alignment = { horizontal: 'center' };
+
+    // Subtítulo
+    worksheet.mergeCells('A2:K2');
+    worksheet.getCell('A2').value = `Período: ${startDate.toLocaleDateString('es-MX')} - ${endDate.toLocaleDateString('es-MX')}`;
+    worksheet.getCell('A2').alignment = { horizontal: 'center' };
+    worksheet.getCell('A2').font = { size: 11 };
+
+    // Espacio
+    worksheet.addRow([]);
+
+    // Encabezados
+    const headerRow = worksheet.addRow([
+      'SEMANA',
+      'SUELDO',
+      'GASTOS',
+      'RELLENO',
+      'CFE',
+      'RENTA',
+      'INTERNET',
+      'RUTA',
+      'EGRESOS',
+      'CORTE',
+      'TOTAL'
+    ]);
+
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF4472C4' }
+    };
+    headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+
+    // Datos semanales
+    weeklyData.forEach(week => {
+      const row = worksheet.addRow([
+        week.semana,
+        week.sueldo,
+        week.gastos,
+        week.relleno,
+        week.cfe,
+        week.renta,
+        week.internet,
+        week.ruta,
+        week.egresos,
+        week.corte,
+        week.total
+      ]);
+
+      // Formato de moneda para todas las columnas excepto SEMANA
+      for (let i = 2; i <= 11; i++) {
+        row.getCell(i).numFmt = '"$"#,##0.00';
+      }
+
+      // Color para la columna TOTAL
+      if (week.total >= 0) {
+        row.getCell(11).font = { color: { argb: 'FF008000' } };
+      } else {
+        row.getCell(11).font = { color: { argb: 'FFFF0000' } };
+      }
+    });
+
+    // Fila de totales
+    worksheet.addRow([]);
+    const totalRow = worksheet.addRow([
+      'TOTAL NETO',
+      weeklyData.reduce((sum, w) => sum + w.sueldo, 0),
+      weeklyData.reduce((sum, w) => sum + w.gastos, 0),
+      weeklyData.reduce((sum, w) => sum + w.relleno, 0),
+      weeklyData.reduce((sum, w) => sum + w.cfe, 0),
+      weeklyData.reduce((sum, w) => sum + w.renta, 0),
+      weeklyData.reduce((sum, w) => sum + w.internet, 0),
+      weeklyData.reduce((sum, w) => sum + w.ruta, 0),
+      weeklyData.reduce((sum, w) => sum + w.egresos, 0),
+      weeklyData.reduce((sum, w) => sum + w.corte, 0),
+      weeklyData.reduce((sum, w) => sum + w.total, 0)
+    ]);
+
+    totalRow.font = { bold: true, size: 12 };
+    totalRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFFFD966' }
+    };
+
+    // Formato de moneda para totales
+    for (let i = 2; i <= 11; i++) {
+      totalRow.getCell(i).numFmt = '"$"#,##0.00';
+    }
+
+    // Color para TOTAL NETO
+    const totalNeto = weeklyData.reduce((sum, w) => sum + w.total, 0);
+    if (totalNeto >= 0) {
+      totalRow.getCell(11).font = { color: { argb: 'FF008000' }, bold: true };
+    } else {
+      totalRow.getCell(11).font = { color: { argb: 'FFFF0000' }, bold: true };
+    }
+
+    // Ajustar anchos de columna
+    worksheet.columns = [
+      { width: 18 }, // SEMANA
+      { width: 12 }, // SUELDO
+      { width: 12 }, // GASTOS
+      { width: 12 }, // RELLENO
+      { width: 12 }, // CFE
+      { width: 12 }, // RENTA
+      { width: 12 }, // INTERNET
+      { width: 12 }, // RUTA
+      { width: 12 }, // EGRESOS
+      { width: 12 }, // CORTE
+      { width: 14 }  // TOTAL
+    ];
+
+    // Congelar paneles (primera fila de encabezados)
+    worksheet.views = [
+      { state: 'frozen', ySplit: 4 }
+    ];
+
+    // Enviar archivo
+    const filename = `estado_resultados_${local.name.replace(/\s+/g, '_')}_${startDate.toISOString().split('T')[0]}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('Error generating weekly statement report:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Función auxiliar para abreviaturas de meses
+function getMonthAbbr(monthIndex) {
+  const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  return months[monthIndex];
+}
+
 module.exports = router;
