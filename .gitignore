@@ -46,3 +46,11 @@ uploads/
 # Temporal files
 *.tmp
 .cache
+
+# Production scripts with credentials
+scripts/*-production*.js
+scripts/init-production-db.js
+scripts/fix-*.js
+scripts/seed-*.js
+scripts/migrate-*.js
+scripts/update-*.js

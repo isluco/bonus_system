@@ -2,7 +2,64 @@ const express = require('express');
 const router = express.Router();
 const ChangeRequest = require('../models/ChangeRequest');
 const Local = require('../models/Local');
+const MotoLocation = require('../models/MotoLocation');
+const User = require('../models/User');
 const { auth, localOnly, adminOnly } = require('../middlewares/auth');
+
+// Función auxiliar para encontrar la moto más cercana
+async function findNearestMoto(localCoordinates) {
+  try {
+    // Obtener todas las motos activas con sus últimas ubicaciones
+    const motoLocations = await MotoLocation.getAllLastLocations();
+
+    if (!motoLocations || motoLocations.length === 0) {
+      return null;
+    }
+
+    // Calcular distancia a cada moto usando Haversine formula
+    const calculateDistance = (coords1, coords2) => {
+      const toRad = (value) => (value * Math.PI) / 180;
+      const R = 6371; // Radio de la Tierra en km
+
+      const lat1 = coords1[1];
+      const lon1 = coords1[0];
+      const lat2 = coords2[1];
+      const lon2 = coords2[0];
+
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+
+      const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c; // Distancia en km
+    };
+
+    // Encontrar la moto más cercana
+    let nearestMoto = null;
+    let minDistance = Infinity;
+
+    for (const motoLoc of motoLocations) {
+      const distance = calculateDistance(
+        localCoordinates,
+        motoLoc.location.coordinates
+      );
+
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestMoto = motoLoc.user_id;
+      }
+    }
+
+    return nearestMoto;
+  } catch (error) {
+    console.error('Error finding nearest moto:', error);
+    return null;
+  }
+}
 
 // Crear solicitud de cambio (local)
 router.post('/', auth, localOnly, async (req, res) => {
@@ -25,17 +82,25 @@ router.post('/', auth, localOnly, async (req, res) => {
       });
     }
 
+    // Buscar la moto más cercana basándose en las coordenadas del local
+    let assigned_moto = null;
+    if (local.location && local.location.coordinates) {
+      assigned_moto = await findNearestMoto(local.location.coordinates);
+    }
+
     const changeRequest = new ChangeRequest({
       local_id,
       created_by: req.userId,
       coins_5: coins_5 || 0,
       coins_10: coins_10 || 0,
       total_amount,
-      notes
+      notes,
+      assigned_to_moto: assigned_moto, // Asignar automáticamente la moto más cercana
+      status: 'pending' // La solicitud queda pendiente de aprobación del admin
     });
 
     await changeRequest.save();
-    await changeRequest.populate(['local_id', 'created_by']);
+    await changeRequest.populate(['local_id', 'created_by', 'assigned_to_moto']);
 
     res.status(201).json(changeRequest);
   } catch (error) {
