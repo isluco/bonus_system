@@ -169,7 +169,59 @@ async function sendToMultipleUsers(userIds, notification) {
 }
 
 async function sendToAll(notification) {
-  return await sendToTopic('all', notification);
+  // Enviar a TODOS los usuarios con tokens FCM (no a topic)
+  // Esto funciona sin necesidad de suscripción a topics
+  try {
+    const User = require('../models/User');
+
+    // Obtener todos los usuarios con tokens FCM
+    const users = await User.find(
+      { fcm_token: { $exists: true, $ne: null } },
+      'fcm_token'
+    );
+
+    if (users.length === 0) {
+      console.log('⚠️ No users with FCM tokens found');
+      return { success: false, message: 'No users with FCM tokens' };
+    }
+
+    const tokens = users.map(user => user.fcm_token);
+    console.log(`📱 Sending to ${tokens.length} devices with FCM tokens`);
+
+    const message = {
+      tokens: tokens,
+      notification: {
+        title: notification.title,
+        body: notification.body
+      },
+      data: notification.data || {},
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          clickAction: 'FLUTTER_NOTIFICATION_CLICK'
+        }
+      }
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+    console.log(`✅ Notifications sent to ${response.successCount} devices`);
+
+    if (response.failureCount > 0) {
+      console.log(`⚠️ ${response.failureCount} notifications failed`);
+    }
+
+    return {
+      success: true,
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      totalDevices: tokens.length
+    };
+
+  } catch (error) {
+    console.error('❌ Error sending notifications to all users:', error);
+    return { success: false, error: error.message };
+  }
 }
 
 module.exports = {
