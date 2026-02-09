@@ -52,7 +52,21 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  last_login: Date
+  last_login: Date,
+  // Push Notifications (Firebase Cloud Messaging)
+  fcm_token: {
+    type: String,
+    default: null
+  },
+  fcm_platform: {
+    type: String,
+    enum: ['android', 'ios'],
+    default: 'android'
+  },
+  fcm_updated_at: {
+    type: Date,
+    default: null
+  }
 }, {
   timestamps: true
 });

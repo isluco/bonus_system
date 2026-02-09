@@ -233,4 +233,45 @@ router.post('/:id/delegate-permissions', auth, adminOnly, async (req, res) => {
   }
 });
 
+// Guardar/actualizar token FCM para push notifications
+router.post('/fcm-token', auth, async (req, res) => {
+  try {
+    const { user_id, fcm_token, platform } = req.body;
+
+    if (!user_id || !fcm_token) {
+      return res.status(400).json({
+        error: 'user_id y fcm_token son requeridos'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      user_id,
+      {
+        fcm_token: fcm_token,
+        fcm_platform: platform || 'android',
+        fcm_updated_at: new Date()
+      },
+      { new: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    console.log(`✅ FCM token saved for user ${user.full_name}`);
+
+    res.json({
+      success: true,
+      message: 'Token FCM guardado exitosamente'
+    });
+
+  } catch (error) {
+    console.error('Error saving FCM token:', error);
+    res.status(500).json({
+      error: 'Error al guardar token FCM',
+      details: error.message
+    });
+  }
+});
+
 module.exports = router;

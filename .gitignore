@@ -8,6 +8,9 @@ node_modules/
 .env.test
 .env.production
 
+# Firebase credentials
+firebase-service-account.json
+
 # Logs
 logs
 *.log

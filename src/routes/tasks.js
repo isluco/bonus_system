@@ -9,6 +9,7 @@ const { uploadImage } = require('../config/cloudinary');
 const { notifyTaskAssigned, notifyPanicButton, createNotification } = require('../utils/notifications');
 const { calculateETA, isFundSufficient } = require('../utils/calculations');
 const { findNearestMoto } = require('../utils/geoUtils');
+const pushNotificationService = require('../services/pushNotificationService');
 
 // Crear tarea (cambio, falla, premio, etc.)
 router.post('/', auth, async (req, res) => {
@@ -275,6 +276,10 @@ router.post('/panic-button', auth, localOnly, async (req, res) => {
       photo_url = await uploadImage(photo, 'panic');
     }
 
+    // Obtener información del local y usuario
+    const local = await Local.findById(local_id);
+    const user = await User.findById(req.userId);
+
     // Crear tarea especial de pánico
     const task = new Task({
       type: 'alert',
@@ -288,11 +293,54 @@ router.post('/panic-button', auth, localOnly, async (req, res) => {
 
     await task.save();
 
-    // Notificar a todos los admins
+    // Notificar a todos los admins (sistema antiguo)
     await notifyPanicButton(local_id, location, photo_url);
 
-    res.status(201).json({ message: 'Alerta enviada exitosamente', task });
+    // ========================================
+    // ENVIAR PUSH NOTIFICATION A TODOS
+    // ========================================
+    const localName = local?.name || 'Local';
+    const userName = user?.full_name || 'Usuario';
+
+    const notification = {
+      title: '🚨 ALERTA DE EMERGENCIA',
+      body: `${userName} ha activado el botón de pánico en ${localName}`,
+      data: {
+        type: 'panic_alert',
+        alert_id: task._id.toString(),
+        local_id: local_id,
+        local_name: localName,
+        location: location,
+        route: '/admin/activities',
+        priority: 'urgent'
+      }
+    };
+
+    // Enviar a TODOS los usuarios (topic 'all')
+    const notificationResult = await pushNotificationService.sendToAll(notification);
+    console.log('📬 Push notification sent to all users:', notificationResult);
+
+    // También enviar específicamente a admins con prioridad crítica
+    await pushNotificationService.sendToTopic('admins', {
+      title: '🚨 EMERGENCIA - ACCIÓN REQUERIDA',
+      body: `Alerta de pánico en ${localName}. Requiere atención inmediata.`,
+      data: {
+        type: 'panic_alert',
+        alert_id: task._id.toString(),
+        local_id: local_id,
+        local_name: localName,
+        priority: 'critical',
+        route: '/admin/activities'
+      }
+    });
+
+    res.status(201).json({
+      message: 'Alerta enviada exitosamente',
+      task,
+      notification_sent: notificationResult.success
+    });
   } catch (error) {
+    console.error('Error en panic button:', error);
     res.status(500).json({ error: error.message });
   }
 });
